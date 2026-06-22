@@ -113,6 +113,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
         if (basin.status === "prediction_only") {
           this.drawTriangle(ctx, x, y, radius + 0.8);
+        } else if (basin.status === "supervised_label_available") {
+          this.drawDiamond(ctx, x, y, radius + 1.0);
         } else {
           ctx.beginPath();
           ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -129,6 +131,15 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     ctx.moveTo(x, y - radius);
     ctx.lineTo(x + radius * 0.9, y + radius * 0.7);
     ctx.lineTo(x - radius * 0.9, y + radius * 0.7);
+    ctx.closePath();
+  }
+
+  drawDiamond(ctx, x, y, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - radius);
+    ctx.lineTo(x + radius, y);
+    ctx.lineTo(x, y + radius);
+    ctx.lineTo(x - radius, y);
     ctx.closePath();
   }
 
@@ -165,7 +176,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-lead-row">${this.renderLeadButtons()}</div>
         <div class="sf-card-grid">
           ${this.metricCard("Basins", this.formatInt(meta.basinCount || this.basins.length))}
-          ${this.metricCard("Validated", this.formatInt(meta.recentValidatedBasinCount))}
+          ${this.metricCard("Fine-tuned", this.formatInt(meta.fineTunedValidatedBasinCount ?? meta.recentValidatedBasinCount))}
           ${this.metricCard("Supervised labels", this.formatInt(meta.supervisedLabelBasinCount))}
           ${this.metricCard("Prediction only", this.formatInt(meta.predictionOnlyBasinCount))}
         </div>
@@ -260,8 +271,16 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   statusBanner(basin) {
-    const label = basin.status === "prediction_only" ? "Prediction only" : "Observed validation";
-    const cls = basin.status === "prediction_only" ? "prediction" : "validated";
+    const label = basin.status === "fine_tuned_validated"
+      ? "Fine-tuned validation"
+      : basin.status === "supervised_label_available"
+        ? "Supervised label only"
+        : "Prediction only";
+    const cls = basin.status === "fine_tuned_validated"
+      ? "validated"
+      : basin.status === "supervised_label_available"
+        ? "label"
+        : "prediction";
     return `
       <div class="sf-status ${cls}">
         <span>${this.escape(label)}</span>
@@ -318,7 +337,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-legend">
           <div class="sf-gradient"></div>
           <div class="sf-legend-ticks"><span>0 or below</span><span>0.4</span><span>0.8+</span></div>
-          <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>Observed labels <span class="sf-triangle-symbol"></span>Prediction only</div>
+          <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>Fine-tuned <span class="sf-diamond-symbol"></span>Label only <span class="sf-triangle-symbol"></span>Prediction only</div>
         </div>
       `
     });
@@ -460,6 +479,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-table th:first-child,.sf-table td:first-child{text-align:left}
       .sf-status{display:flex;justify-content:space-between;gap:8px;border-radius:6px;padding:9px 10px;margin:0 0 12px;font-size:12px}
       .sf-status.validated{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
+      .sf-status.label{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
       .sf-status.prediction{background:#f8fafc;color:#475569;border:1px solid #cbd5e1}
       .sf-open-chart{width:100%;height:34px;border:1px solid #0f172a;background:#0f172a;color:#fff;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;margin:2px 0 10px}
       .sf-chart-preview{cursor:pointer}
@@ -471,6 +491,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-legend-ticks,.sf-symbol-row{display:flex;justify-content:space-between;gap:6px}
       .sf-symbol-row{align-items:center;margin-top:6px}
       .sf-dot-symbol{width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block}
+      .sf-diamond-symbol{width:8px;height:8px;background:#60a5fa;display:inline-block;transform:rotate(45deg)}
       .sf-triangle-symbol{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #94a3b8;display:inline-block}
       .sf-modal{position:fixed;inset:0;background:rgba(15,23,42,.58);z-index:5000;display:none;align-items:center;justify-content:center;padding:24px}
       .sf-modal.visible{display:flex}
