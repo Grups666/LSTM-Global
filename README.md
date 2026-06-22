@@ -40,7 +40,7 @@ public/
   modules/streamflow-forecast/
     module.json
     index.js
-    data/dashboard-data.json
+    data/dashboard-data-supervised-calibrated-20260622.json
 ```
 
 ## Current Data

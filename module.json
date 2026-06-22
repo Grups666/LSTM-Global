@@ -16,7 +16,7 @@
   "datasets": [
     {
       "id": "streamflow-forecast-dashboard",
-      "file": "./public/modules/streamflow-forecast/data/dashboard-data.json"
+      "file": "./public/modules/streamflow-forecast/data/dashboard-data-supervised-calibrated-20260622.json"
     }
   ],
   "provides": {
