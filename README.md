@@ -45,12 +45,14 @@ public/
 
 ## Current Data
 
-- Model: Handoff Forecast LSTM + CMAL operational preview.
+- Model: Handoff Forecast LSTM + CMAL epoch10 with supervised GFS quantile calibrator.
 - Forecast horizon: lead 1-7 days.
 - Forecast forcing: GFS operational forcing adapter.
 - Basins: 4057 GRDC-Caravan basins.
-- Recent validation is available only where observed daily discharge has been matched from national hydrometric services.
-- Prediction-only basins remain forecastable but unvalidated until a daily streamflow source is connected.
+- Fine-tuned/validated basins: 1523 USGS/ECCC matched basins.
+- Supervised-label-only basins: 5 matched basins without held-out test pairs in the dashboard split.
+- Prediction-only basins: 2529 basins without connected recent streamflow observations.
+- Current calibrated test median NSE remains negative under GFS forcing, but coverage improves to roughly 0.93-0.97 across lead 1-7.
 
 ## Local Preview
 

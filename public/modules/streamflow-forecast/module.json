@@ -2,7 +2,7 @@
   "id": "streamflow-forecast",
   "name": "LSTM Global Streamflow Forecast",
   "version": "0.1.0",
-  "assetVersion": "2026-06-22-operational-preview",
+  "assetVersion": "2026-06-22-supervised-calibrated",
   "description": "Global 1-7 day probabilistic streamflow forecast preview with recent supervised validation where daily observations are available.",
   "author": "Spatial Research Team",
   "icon": "activity",
