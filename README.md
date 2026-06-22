@@ -1,19 +1,61 @@
-# LSTM Global Streamflow Forecast
+# LSTM Global
 
-Static GitHub Pages dashboard for the global 1-7 day probabilistic streamflow forecast prototype.
+LSTM Global is a Tereon domain module for global 1-7 day probabilistic streamflow forecast visualization. It shows the latest GFS-driven forecast for all GRDC-Caravan basins and recent observed-discharge validation where daily streamflow labels are available.
 
-The dashboard currently shows the GFS operational forcing demo for 2026-05-18 through 2026-06-16. Recent observed
-streamflow validation is included where near-real-time USGS NWIS daily values are available. Additional USGS and
-ECCC/HYDAT basins with 2022-2026 streamflow labels are marked as supervised-label candidates for future GFS fine-tuning;
-the remaining basins are prediction-only until an operational observation source is connected.
+The Foundation map and module loader live in:
 
-Important: the displayed skill is for the current pre-fine-tuning model under GFS forcing, so it should be treated as a
-domain-shift diagnostic, not as the final supervised GFS-calibrated result.
+[https://github.com/Grups666/Tereon](https://github.com/Grups666/Tereon)
 
-Open locally with a static server:
+## Interactive Page
 
-```powershell
-python -m http.server 8088
+[https://grups666.github.io/LSTM-Global/](https://grups666.github.io/LSTM-Global/)
+
+## Tereon Module
+
+Direct module manifest:
+
+```text
+https://grups666.github.io/LSTM-Global/module.json
 ```
 
-Then browse to `http://localhost:8088`.
+Repository URL import:
+
+```text
+https://github.com/Grups666/LSTM-Global
+```
+
+The manifest points Tereon to:
+
+```text
+public/modules/streamflow-forecast/
+```
+
+## Module Contents
+
+```text
+public/
+  index.html
+  module.json
+  tereon-embed.html
+  modules/streamflow-forecast/
+    module.json
+    index.js
+    data/dashboard-data.json
+```
+
+## Current Data
+
+- Model: Handoff Forecast LSTM + CMAL operational preview.
+- Forecast horizon: lead 1-7 days.
+- Forecast forcing: GFS operational forcing adapter.
+- Basins: 4057 GRDC-Caravan basins.
+- Recent validation is available only where observed daily discharge has been matched from national hydrometric services.
+- Prediction-only basins remain forecastable but unvalidated until a daily streamflow source is connected.
+
+## Local Preview
+
+```powershell
+python -m http.server 8768 --directory public
+```
+
+Open `http://127.0.0.1:8768/`.
