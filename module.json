@@ -1,0 +1,52 @@
+{
+  "id": "streamflow-forecast",
+  "name": "LSTM Global Streamflow Forecast",
+  "version": "0.1.0",
+  "assetVersion": "2026-06-22-operational-preview",
+  "description": "Global 1-7 day probabilistic streamflow forecast preview with recent supervised validation where daily observations are available.",
+  "author": "Spatial Research Team",
+  "icon": "activity",
+  "basePath": "https://grups666.github.io/LSTM-Global/",
+  "entry": "./modules/streamflow-forecast/index.js",
+  "className": "StreamflowForecastModule",
+  "importKind": "module-manifest",
+  "defaultLoad": false,
+  "layerId": "streamflow-forecast-basins",
+  "layerName": "Global Streamflow Forecast",
+  "datasets": [
+    {
+      "id": "streamflow-forecast-dashboard",
+      "file": "./modules/streamflow-forecast/data/dashboard-data.json"
+    }
+  ],
+  "provides": {
+    "layers": [
+      {
+        "id": "streamflow-forecast-basins",
+        "name": "Global Streamflow Forecast",
+        "type": "vector",
+        "source": "module.basins",
+        "interactive": true
+      }
+    ],
+    "panels": [
+      {
+        "id": "streamflow-forecast-inspector",
+        "name": "Streamflow Forecast Inspector",
+        "position": "right",
+        "trigger": "feature:click",
+        "condition": {
+          "layer": "streamflow-forecast-basins",
+          "module": "streamflow-forecast"
+        }
+      }
+    ],
+    "dataProducts": [
+      {
+        "id": "recent-gfs-streamflow-validation",
+        "type": "forecast-validation-summary",
+        "description": "Lead-wise P05/P50/P95 streamflow forecast series joined with recent observed daily discharge where available."
+      }
+    ]
+  }
+}
