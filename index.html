@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LSTM Global Streamflow Forecast</title>
+    <meta
+      name="description"
+      content="Interactive GRDC-Caravan probabilistic streamflow forecast evaluation for 1-7 day lead times."
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <canvas id="mapCanvas" aria-label="Basin NSE map"></canvas>
+
+      <section class="control-panel" aria-label="Forecast controls">
+        <div>
+          <p class="eyebrow">GRDC-Caravan holdout</p>
+          <h1>Global probabilistic streamflow forecast</h1>
+          <p class="panel-copy">
+            Basin dots are colored by full-test NSE. The selected basin chart compares observed discharge
+            with the 5-50-95% forecast envelope for December 2019.
+          </p>
+        </div>
+
+        <div class="lead-control" role="group" aria-label="Lead day selector">
+          <span class="control-label">Lead day</span>
+          <div id="leadButtons" class="segmented"></div>
+        </div>
+
+        <div class="summary-grid" id="summaryGrid"></div>
+
+        <label class="search-box">
+          <span class="control-label">Find basin</span>
+          <input id="basinSearch" type="search" autocomplete="off" placeholder="GRDC basin id" />
+        </label>
+
+        <div class="legend-block" aria-label="NSE color legend">
+          <div class="legend-row">
+            <span>NSE &le; 0</span>
+            <span>0.25</span>
+            <span>0.50</span>
+            <span>0.75+</span>
+          </div>
+          <div class="colorbar"></div>
+          <p class="note">Negative NSE values are clamped to the same color as 0 on the map.</p>
+        </div>
+      </section>
+
+      <section class="detail-panel" aria-label="Selected basin detail">
+        <header class="detail-header">
+          <div>
+            <p class="eyebrow">Selected basin</p>
+            <h2 id="basinTitle">Loading</h2>
+            <p id="basinSubtitle" class="panel-copy"></p>
+          </div>
+          <button id="resetSelection" class="icon-button" type="button" title="Select median-skill basin">
+            Reset
+          </button>
+        </header>
+
+        <div class="basin-metrics" id="basinMetrics"></div>
+
+        <div class="chart-head">
+          <div>
+            <h3>Observed vs probabilistic forecast</h3>
+            <p id="chartCaption" class="note"></p>
+          </div>
+          <div class="series-legend" aria-label="Chart legend">
+            <span><i class="line obs"></i>Observed</span>
+            <span><i class="line p50"></i>P50</span>
+            <span><i class="band"></i>P05-P95</span>
+          </div>
+        </div>
+        <canvas id="seriesCanvas" class="series-canvas" aria-label="Hydrograph chart"></canvas>
+      </section>
+
+      <div id="tooltip" class="tooltip" hidden></div>
+      <div id="loading" class="loading">Loading forecast evaluation data...</div>
+    </main>
+
+    <script src="assets/world-land.js"></script>
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
