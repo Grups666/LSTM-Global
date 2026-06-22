@@ -177,7 +177,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-card-grid">
           ${this.metricCard("Basins", this.formatInt(meta.basinCount || this.basins.length))}
           ${this.metricCard("Fine-tuned", this.formatInt(meta.fineTunedValidatedBasinCount ?? meta.recentValidatedBasinCount))}
-          ${this.metricCard("Supervised labels", this.formatInt(meta.supervisedLabelBasinCount))}
+          ${this.metricCard("Latest run", this.formatInt(meta.latestStateForecastBasinCount))}
           ${this.metricCard("Prediction only", this.formatInt(meta.predictionOnlyBasinCount))}
         </div>
         <div class="sf-meta-line">
