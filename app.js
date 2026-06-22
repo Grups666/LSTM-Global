@@ -113,16 +113,18 @@ function updateSummary() {
 function updateDetail() {
   const basin = selectedBasin();
   const metrics = basin.metrics[String(state.selectedLead)];
+  const latest = basin.latestForecast?.[String(state.selectedLead)];
   basinTitle.textContent = basin.id;
   basinSubtitle.textContent = `${statusLabel(basin.status)}. Lat ${formatNumber(basin.lat, 3)}, lon ${formatNumber(basin.lon, 3)}.`;
   basinMetrics.innerHTML = [
     ["Lead", `Day ${state.selectedLead}`],
+    ["Latest P50", latest ? `${formatNumber(latest.p50, 3)} mm/day` : "NA"],
     ["NSE", formatNumber(metrics.nse, 3)],
     ["KGE", formatNumber(metrics.kge, 3)],
     ["Pairs", metrics.n ?? 0],
   ].map(([label, value]) => metric(label, value)).join("");
   chartCaption.textContent = state.data.series[basin.id]
-    ? `Recent observed streamflow vs sampled CMAL forecast. Source: ${state.data.meta.observationSources?.[0] || "observations"}.`
+    ? `Observed streamflow vs calibrated probabilistic forecast. Latest issue ${latest?.issue_date || state.data.meta.latestIssueDate || "NA"} gives lead ${state.selectedLead} for ${latest?.valid_date || "NA"}.`
     : `No recent observed streamflow is available for this basin; latest issue forecast is shown without scoring.`;
 }
 
@@ -490,6 +492,8 @@ function formatPercent(value) {
 }
 
 function statusLabel(status) {
+  if (status === "fine_tuned_validated") return "GFS-supervised validated";
+  if (status === "calibrated_validated") return "GFS-supervised validated";
   if (status === "recent_validated") return "Recent observed validation";
   if (status === "supervised_label_available") return "Supervised label available";
   return "Prediction only";
