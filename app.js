@@ -114,14 +114,16 @@ function updateDetail() {
   const basin = selectedBasin();
   const metrics = basin.metrics[String(state.selectedLead)];
   basinTitle.textContent = basin.id;
-  basinSubtitle.textContent = `Lat ${formatNumber(basin.lat, 3)}, lon ${formatNumber(basin.lon, 3)}. Metrics use the full 2015-2019 test period.`;
+  basinSubtitle.textContent = `${statusLabel(basin.status)}. Lat ${formatNumber(basin.lat, 3)}, lon ${formatNumber(basin.lon, 3)}.`;
   basinMetrics.innerHTML = [
     ["Lead", `Day ${state.selectedLead}`],
     ["NSE", formatNumber(metrics.nse, 3)],
     ["KGE", formatNumber(metrics.kge, 3)],
-    ["RMSE", formatNumber(metrics.rmse, 3)],
+    ["Pairs", metrics.n ?? 0],
   ].map(([label, value]) => metric(label, value)).join("");
-  chartCaption.textContent = `${state.data.meta.dateRange[0]} to ${state.data.meta.dateRange[1]}, observed GRDC-Caravan discharge vs sampled CMAL forecast.`;
+  chartCaption.textContent = state.data.series[basin.id]
+    ? `Recent observed streamflow vs sampled CMAL forecast. Source: ${state.data.meta.observationSources?.[0] || "observations"}.`
+    : `No recent observed streamflow is available for this basin; latest issue forecast is shown without scoring.`;
 }
 
 function metric(label, value) {
@@ -211,7 +213,11 @@ function drawBasins(plot) {
     const metrics = point.basin.metrics[String(state.selectedLead)];
     const radius = point.basin.id === selected ? 6.5 : point.basin.id === hovered ? 6 : 4.2;
     mapCtx.beginPath();
-    mapCtx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    if (point.basin.status === "prediction_only") {
+      drawTrianglePath(mapCtx, point.x, point.y, radius + 1);
+    } else {
+      mapCtx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    }
     mapCtx.fillStyle = nseColor(metrics?.nse);
     mapCtx.fill();
     mapCtx.strokeStyle = point.basin.id === selected ? "#102333" : "rgba(255, 255, 255, 0.92)";
@@ -221,17 +227,29 @@ function drawBasins(plot) {
   mapCtx.restore();
 }
 
+function drawTrianglePath(ctx, x, y, radius) {
+  ctx.moveTo(x, y - radius);
+  ctx.lineTo(x + radius * 0.88, y + radius * 0.68);
+  ctx.lineTo(x - radius * 0.88, y + radius * 0.68);
+  ctx.closePath();
+}
+
 function drawSeries() {
   if (!state.data) return;
   const basin = selectedBasin();
-  const series = state.data.series[basin.id][String(state.selectedLead)];
-  const dates = state.data.dates;
+  const basinSeries = state.data.series[basin.id];
+  const series = basinSeries?.[String(state.selectedLead)];
+  const latest = basin.latestForecast?.[String(state.selectedLead)];
   const rect = seriesCanvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   seriesCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
   seriesCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
   seriesCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   seriesCtx.clearRect(0, 0, rect.width, rect.height);
+  if (!series) {
+    drawNoObservationChart(rect, latest);
+    return;
+  }
 
   const padding = { left: 52, right: 18, top: 20, bottom: 38 };
   const width = rect.width - padding.left - padding.right;
@@ -242,6 +260,7 @@ function drawSeries() {
   const yMax = max + (max - min || 1) * 0.1;
   const yMin = min;
 
+  const dates = series.valid_date;
   const x = (index) => padding.left + (index / Math.max(1, dates.length - 1)) * width;
   const y = (value) => padding.top + (1 - (value - yMin) / (yMax - yMin || 1)) * height;
 
@@ -274,6 +293,21 @@ function drawSeries() {
   seriesCtx.fillText(dates[0].slice(5), padding.left, rect.height - 14);
   seriesCtx.textAlign = "right";
   seriesCtx.fillText(dates.at(-1).slice(5), padding.left + width, rect.height - 14);
+  seriesCtx.restore();
+}
+
+function drawNoObservationChart(rect, latest) {
+  seriesCtx.save();
+  seriesCtx.fillStyle = "rgba(255,255,255,0.72)";
+  seriesCtx.fillRect(0, 0, rect.width, rect.height);
+  seriesCtx.fillStyle = "#60707c";
+  seriesCtx.font = "14px Segoe UI, system-ui, sans-serif";
+  seriesCtx.textAlign = "center";
+  seriesCtx.textBaseline = "middle";
+  const text = latest
+    ? `Latest p50 forecast: ${formatNumber(latest.p50, 3)} mm/day for ${latest.valid_date}`
+    : "No observed streamflow or latest forecast is available for this basin.";
+  seriesCtx.fillText(text, rect.width / 2, rect.height / 2);
   seriesCtx.restore();
 }
 
@@ -368,7 +402,8 @@ function showTooltip(clientX, clientY, basin) {
   const metrics = basin.metrics[String(state.selectedLead)];
   tooltip.innerHTML = `
     <strong>${basin.id}</strong>
-    Lead ${state.selectedLead}: NSE ${formatNumber(metrics.nse, 3)}, KGE ${formatNumber(metrics.kge, 3)}<br>
+    ${statusLabel(basin.status)}<br>
+    Lead ${state.selectedLead}: NSE ${formatNumber(metrics.nse, 3)}, pairs ${metrics.n ?? 0}<br>
     Lat ${formatNumber(basin.lat, 2)}, lon ${formatNumber(basin.lon, 2)}
   `;
   tooltip.hidden = false;
@@ -437,10 +472,11 @@ function leadSummary() {
 
 function pickRepresentativeBasin() {
   const lead = String(state.selectedLead);
-  const target = leadSummary()?.medianNse ?? 0.61;
-  return state.data.basins
-    .filter((basin) => Number.isFinite(basin.metrics[lead]?.nse))
-    .sort((a, b) => Math.abs(a.metrics[lead].nse - target) - Math.abs(b.metrics[lead].nse - target))[0].id;
+  const scored = state.data.basins.filter((basin) => Number.isFinite(basin.metrics[lead]?.nse));
+  if (scored.length) {
+    return scored.sort((a, b) => (b.metrics[lead].nse ?? -Infinity) - (a.metrics[lead].nse ?? -Infinity))[0].id;
+  }
+  return state.data.basins[0].id;
 }
 
 function formatNumber(value, digits = 2) {
@@ -451,4 +487,10 @@ function formatNumber(value, digits = 2) {
 function formatPercent(value) {
   if (!Number.isFinite(value)) return "NA";
   return `${Math.round(value * 100)}%`;
+}
+
+function statusLabel(status) {
+  if (status === "recent_validated") return "Recent observed validation";
+  if (status === "supervised_label_available") return "Supervised label available";
+  return "Prediction only";
 }

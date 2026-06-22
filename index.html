@@ -16,11 +16,11 @@
 
       <section class="control-panel" aria-label="Forecast controls">
         <div>
-          <p class="eyebrow">GRDC-Caravan holdout</p>
+          <p class="eyebrow">GFS operational demo</p>
           <h1>Global probabilistic streamflow forecast</h1>
           <p class="panel-copy">
-            Basin dots are colored by full-test NSE. The selected basin chart compares observed discharge
-            with the 5-50-95% forecast envelope for December 2019.
+            Symbols are colored by recent NSE where observed discharge exists. Prediction-only basins remain
+            on the map but cannot be scored until a live observation source is connected.
           </p>
         </div>
 
@@ -44,7 +44,7 @@
             <span>0.75+</span>
           </div>
           <div class="colorbar"></div>
-          <p class="note">Negative NSE values are clamped to the same color as 0 on the map.</p>
+          <p class="note">Negative NSE values are clamped to the same color as 0. Circles have supervised labels; triangles are prediction-only.</p>
         </div>
       </section>
 
