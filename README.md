@@ -40,19 +40,19 @@ public/
   modules/streamflow-forecast/
     module.json
     index.js
-    data/dashboard-data-state-residual-hist7-20260623.json
+    data/dashboard-data-state-residual-hist7-persistence-blend-20260623.json
 ```
 
 ## Current Data
 
-- Model: GFS residual-state forecaster, 7-day observed-flow history, 512 hidden units, trained on nonnegative USGS/ECCC daily streamflow labels.
+- Model: GFS residual-state forecaster, 7-day observed-flow history, 512 hidden units, trained on nonnegative USGS/ECCC daily streamflow labels, with a lead-wise D-1 persistence blend applied to P50.
 - Forecast horizon: lead 1-7 days.
 - Forecast forcing: GFS operational forcing adapter, issue-date realistic lead 1-7 basin forcing.
 - Basins: 4057 GRDC-Caravan basins.
 - Fine-tuned/validated basins: 1528 USGS/ECCC matched basins.
 - Latest operational-style state forecast basins: 781 basins with enough observed-flow history before issue date 2026-06-20.
 - Prediction-only basins: 2529 basins without connected recent streamflow observations.
-- Test median NSE by lead: L1 0.484, L2 0.237, L3 0.046, L4 -0.116, L5 -0.219, L6 -0.333, L7 -0.469. Median NSE/KGE/RMSE are the primary dashboard metrics because a few low-variance basins make mean NSE unstable.
+- Test median NSE by lead after persistence blend: L1 0.508, L2 0.253, L3 0.065, L4 -0.096, L5 -0.210, L6 -0.332, L7 -0.452. Median NSE/KGE/RMSE are the primary dashboard metrics because a few low-variance basins make mean NSE unstable.
 
 ## Local Preview
 
