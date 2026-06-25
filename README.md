@@ -40,7 +40,7 @@ public/
   modules/streamflow-forecast/
     module.json
     index.js
-    data/dashboard-data-state-residual-hist7-conditional-gate-20260626.json
+    data/dashboard-data-state-residual-hist7-conditional-gate-auto-20260621.json
 ```
 
 ## Current Data
@@ -50,7 +50,7 @@ public/
 - Forecast forcing: GFS operational forcing adapter, issue-date realistic lead 1-7 basin forcing.
 - Basins: 4057 GRDC-Caravan basins.
 - Fine-tuned/validated basins: 1528 USGS/ECCC/Australia matched basins.
-- Latest operational-style state forecast basins: 781 basins with enough observed-flow history before issue date 2026-06-20.
+- Latest operational-style state forecast basins: 783 basins with enough observed-flow history before auto-selected issue date 2026-06-21.
 - Prediction-only basins: 2003 basins without connected recent streamflow observations; 526 additional basins have labels but no held-out validated series in this dashboard split.
 - Test median NSE by lead after the conservative conditional gate: L1 0.526, L2 0.270, L3 0.083, L4 -0.096, L5 -0.210, L6 -0.332, L7 -0.452. Median NSE/KGE/RMSE are the primary dashboard metrics because a few low-variance basins make mean NSE unstable.
 
