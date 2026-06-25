@@ -212,7 +212,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           <span>Valid ${this.escape(this.validDate(latest, this.selectedLead))}</span>
         </div>
         <div class="sf-chart-preview" data-sf-open-chart="${this.escape(basin.id)}" role="button" tabindex="0" aria-label="Open basin hydrograph">
-          ${this.renderChartSvg(basin, this.selectedLead, 300, 160)}
+          ${this.renderChartSvg(basin, this.selectedLead, 300, 160, { interactive: false, legend: false })}
         </div>
       </div>
     `;
@@ -259,7 +259,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   bindChartInteractions(root = document) {
-    root.querySelectorAll?.(".sf-chart-shell").forEach((shell) => {
+    root.querySelectorAll?.(".sf-chart-shell[data-sf-interactive='1']").forEach((shell) => {
       if (shell.dataset.sfBound === "1") return;
       shell.dataset.sfBound = "1";
       shell.addEventListener("mousemove", (event) => this.handleChartPointer(event, shell));
@@ -396,7 +396,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.chartModal.querySelector(".sf-modal-body").innerHTML = `
       <div class="sf-lead-row">${this.renderLeadButtons()}</div>
       <div class="sf-modal-meta">${this.escape(basin.id)} / ${this.escape(basin.country || "unknown")} / lead ${this.selectedLead}</div>
-      ${this.renderChartSvg(basin, this.selectedLead, 760, 360)}
+      ${this.renderChartSvg(basin, this.selectedLead, 760, 360, { interactive: true, legend: true })}
     `;
     this.bindLeadButtons(basin);
     this.bindChartInteractions(this.chartModal);
@@ -407,7 +407,9 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.activeModalBasin = null;
   }
 
-  renderChartSvg(basin, lead, width, height) {
+  renderChartSvg(basin, lead, width, height, options = {}) {
+    const interactive = options.interactive === true;
+    const showLegend = options.legend !== false;
     const series = this.data.series?.[basin.id]?.[String(lead)];
     if (!series || !Array.isArray(series.valid_date) || !series.valid_date.length) {
       const latest = basin.latestForecast?.[String(lead)];
@@ -440,33 +442,56 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const bandTop = dates.map((_, i) => point("p95", i)).filter(Boolean);
     const bandBottom = dates.map((_, i) => point("p05", i)).filter(Boolean).reverse();
     const band = [...bandTop, ...bandBottom].join(" ");
-    const firstDate = dates[0] || "";
-    const lastDate = dates[dates.length - 1] || "";
-
-    return `
-      <div class="sf-chart-shell" data-sf-basin-id="${this.escape(basin.id)}" data-sf-lead="${this.escape(lead)}" data-sf-width="${width}" data-sf-height="${height}">
-        <svg class="sf-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Streamflow forecast hydrograph">
-          <rect class="sf-chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
-          <line class="sf-axis" x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}"></line>
-          <line class="sf-axis" x1="${margin.left}" x2="${margin.left}" y1="${margin.top}" y2="${height - margin.bottom}"></line>
-          <text class="sf-axis-label" x="${margin.left}" y="${height - 10}" font-size="10">${this.escape(firstDate)}</text>
-          <text class="sf-axis-label" x="${width - margin.right}" y="${height - 10}" font-size="10" text-anchor="end">${this.escape(lastDate)}</text>
-          <text class="sf-axis-label" x="${margin.left - 8}" y="${margin.top + 8}" font-size="10" text-anchor="end">${this.formatMetric(max, 2)}</text>
-          <text class="sf-axis-label" x="${margin.left - 8}" y="${height - margin.bottom}" font-size="10" text-anchor="end">${this.formatMetric(min, 2)}</text>
-          ${band ? `<polygon class="sf-band" points="${band}" stroke="none"></polygon>` : ""}
-          <polyline class="sf-line-p50" points="${polyline("p50")}" fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"></polyline>
-          <polyline class="sf-line-obs" points="${polyline("obs")}" fill="none" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round"></polyline>
+    const xTicks = this.indexTicks(dates.length, width >= 600 ? 6 : 4);
+    const yTicks = this.yTicks(min, max, 5);
+    const xTickMarkup = xTicks.map((index) => {
+      const px = x(index);
+      const label = dates[index] || "";
+      const anchor = index === 0 ? "start" : index === dates.length - 1 ? "end" : "middle";
+      return `
+        <line class="sf-grid" x1="${px.toFixed(1)}" x2="${px.toFixed(1)}" y1="${margin.top}" y2="${height - margin.bottom}"></line>
+        <text class="sf-axis-label" x="${px.toFixed(1)}" y="${height - 10}" font-size="10" text-anchor="${anchor}">${this.escape(label)}</text>
+      `;
+    }).join("");
+    const yTickMarkup = yTicks.map((value) => {
+      const py = y(value);
+      return `
+        <line class="sf-grid" x1="${margin.left}" x2="${width - margin.right}" y1="${py.toFixed(1)}" y2="${py.toFixed(1)}"></line>
+        <text class="sf-axis-label" x="${margin.left - 8}" y="${(py + 3).toFixed(1)}" font-size="10" text-anchor="end">${this.formatMetric(value, 2)}</text>
+      `;
+    }).join("");
+    const hoverMarkup = interactive ? `
           <line class="sf-hover-v" x1="0" x2="0" y1="${margin.top}" y2="${height - margin.bottom}"></line>
           <line class="sf-hover-h" x1="${margin.left}" x2="${width - margin.right}" y1="0" y2="0"></line>
           <circle class="sf-hover-dot sf-hover-dot-p50" cx="0" cy="0" r="4"></circle>
           <circle class="sf-hover-dot sf-hover-dot-obs" cx="0" cy="0" r="4"></circle>
-        </svg>
+          <text class="sf-hover-label sf-hover-label-p50" x="0" y="0"></text>
+          <text class="sf-hover-label sf-hover-label-obs" x="0" y="0"></text>
+          <text class="sf-hover-label sf-hover-label-band" x="0" y="0"></text>
+          <text class="sf-hover-label sf-hover-label-date" x="0" y="0"></text>
+    ` : "";
+    const legendMarkup = showLegend ? `
         <div class="sf-chart-legend" aria-hidden="true">
           <span><i class="sf-legend-band"></i>P05-P95</span>
           <span><i class="sf-legend-p50"></i>P50</span>
           <span><i class="sf-legend-obs"></i>Observed</span>
         </div>
-        <div class="sf-chart-readout"></div>
+    ` : "";
+
+    return `
+      <div class="sf-chart-shell ${interactive ? "sf-chart-interactive" : "sf-chart-static"}" data-sf-basin-id="${this.escape(basin.id)}" data-sf-lead="${this.escape(lead)}" data-sf-width="${width}" data-sf-height="${height}" data-sf-interactive="${interactive ? "1" : "0"}">
+        <svg class="sf-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Streamflow forecast hydrograph">
+          <rect class="sf-chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+          ${xTickMarkup}
+          ${yTickMarkup}
+          <line class="sf-axis" x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}"></line>
+          <line class="sf-axis" x1="${margin.left}" x2="${margin.left}" y1="${margin.top}" y2="${height - margin.bottom}"></line>
+          ${band ? `<polygon class="sf-band" points="${band}" stroke="none"></polygon>` : ""}
+          <polyline class="sf-line-p50" points="${polyline("p50")}" fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+          <polyline class="sf-line-obs" points="${polyline("obs")}" fill="none" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round"></polyline>
+          ${hoverMarkup}
+        </svg>
+        ${legendMarkup}
       </div>
     `;
   }
@@ -504,6 +529,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     shell.style.setProperty("--sf-hover-y", yAnchor.toFixed(1));
     const p50Dot = shell.querySelector(".sf-hover-dot-p50");
     const obsDot = shell.querySelector(".sf-hover-dot-obs");
+    const dateAnchor = x > width - margin.right - 90 ? "end" : "start";
+    const labelX = dateAnchor === "end" ? x - 8 : x + 8;
     if (p50Dot) {
       p50Dot.setAttribute("cx", x.toFixed(1));
       p50Dot.setAttribute("cy", Number.isFinite(p50) ? y(p50).toFixed(1) : "-20");
@@ -512,21 +539,27 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       obsDot.setAttribute("cx", x.toFixed(1));
       obsDot.setAttribute("cy", Number.isFinite(obs) ? y(obs).toFixed(1) : "-20");
     }
+    this.setHoverText(shell, ".sf-hover-label-p50", Number.isFinite(p50) ? `P50 ${this.formatFlow(p50)}` : "", labelX, Number.isFinite(p50) ? y(p50) - 8 : -20, dateAnchor);
+    this.setHoverText(shell, ".sf-hover-label-obs", Number.isFinite(obs) ? `Obs ${this.formatFlow(obs)}` : "", labelX, Number.isFinite(obs) ? y(obs) + 14 : -20, dateAnchor);
+    this.setHoverText(shell, ".sf-hover-label-band", Number.isFinite(p05) || Number.isFinite(p95) ? `P05-P95 ${this.formatFlow(p05)}-${this.formatFlow(p95)}` : "", labelX, Math.max(margin.top + 12, yAnchor - 22), dateAnchor);
+    this.setHoverText(shell, ".sf-hover-label-date", series.valid_date[index] || "", labelX, height - margin.bottom - 6, dateAnchor);
     shell.classList.add("is-hovering");
-    const readout = shell.querySelector(".sf-chart-readout");
-    if (readout) {
-      readout.innerHTML = `
-        <strong>${this.escape(series.valid_date[index] || "")} / L${this.escape(lead)}</strong>
-        <span>P50 ${this.escape(this.formatFlow(p50))}</span>
-        <span>P05-P95 ${this.escape(this.formatFlow(p05))} - ${this.escape(this.formatFlow(p95))}</span>
-        <span>Obs ${this.escape(this.formatFlow(obs))}</span>
-      `;
-    }
   }
 
   clearChartPointer(shell) {
     shell.classList.remove("is-hovering");
-    shell.querySelector(".sf-chart-readout").innerHTML = "";
+    shell.querySelectorAll(".sf-hover-label").forEach((node) => {
+      node.textContent = "";
+    });
+  }
+
+  setHoverText(shell, selector, text, x, y, anchor = "start") {
+    const node = shell.querySelector(selector);
+    if (!node) return;
+    node.textContent = text;
+    node.setAttribute("x", Number.isFinite(x) ? x.toFixed(1) : "0");
+    node.setAttribute("y", Number.isFinite(y) ? y.toFixed(1) : "-20");
+    node.setAttribute("text-anchor", anchor);
   }
 
   nonnegative(value) {
@@ -553,6 +586,24 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     }
     const max = values.length ? Math.max(...values) : 1;
     return { min: 0, max: Math.max(max, 1e-6) };
+  }
+
+  indexTicks(length, targetCount) {
+    if (!length) return [];
+    if (length <= targetCount) return Array.from({ length }, (_, index) => index);
+    const ticks = new Set();
+    const steps = Math.max(1, targetCount - 1);
+    for (let step = 0; step <= steps; step += 1) {
+      ticks.add(Math.round((step / steps) * (length - 1)));
+    }
+    return Array.from(ticks).sort((a, b) => a - b);
+  }
+
+  yTicks(min, max, targetCount) {
+    const low = Number.isFinite(min) ? min : 0;
+    const high = Number.isFinite(max) && max > low ? max : low + 1;
+    const steps = Math.max(1, targetCount - 1);
+    return Array.from({ length: steps + 1 }, (_, index) => low + (index / steps) * (high - low));
   }
 
   validDate(latest, lead) {
@@ -600,6 +651,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-chart{width:100%;height:auto;display:block;border:1px solid var(--sf-border);border-radius:8px}
       .sf-chart-bg{fill:var(--sf-chart-bg)}
       .sf-axis{stroke:var(--sf-border-strong)}
+      .sf-grid{stroke:var(--sf-border);stroke-width:1;opacity:.58}
       .sf-axis-label{fill:var(--sf-muted)}
       .sf-band{fill:var(--sf-band)}
       .sf-line-p50{stroke:var(--sf-p50)}
@@ -609,17 +661,17 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-hover-dot{opacity:0;stroke:var(--sf-chart-bg);stroke-width:2}
       .sf-hover-dot-p50{fill:var(--sf-p50)}
       .sf-hover-dot-obs{fill:var(--sf-obs)}
+      .sf-hover-label{opacity:0;fill:var(--sf-text);font-size:11px;font-weight:700;paint-order:stroke;stroke:var(--sf-chart-bg);stroke-width:3px;stroke-linejoin:round;pointer-events:none}
+      .sf-hover-label-band,.sf-hover-label-date{fill:var(--sf-muted);font-weight:650}
+      .sf-hover-label-date{font-size:10px}
       .sf-chart-shell.is-hovering .sf-hover-v,.sf-chart-shell.is-hovering .sf-hover-h,.sf-chart-shell.is-hovering .sf-hover-dot{opacity:1}
+      .sf-chart-shell.is-hovering .sf-hover-label{opacity:.78}
       .sf-chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin:7px 0 0;color:var(--sf-muted);font-size:11px}
       .sf-chart-legend span{display:inline-flex;align-items:center;gap:5px}
       .sf-chart-legend i{display:inline-block;width:18px;height:0;border-top:3px solid currentColor;border-radius:999px}
       .sf-legend-band{height:8px!important;border:0!important;background:var(--sf-band);box-shadow:0 0 0 1px var(--sf-border) inset}
       .sf-legend-p50{color:var(--sf-p50)}
       .sf-legend-obs{color:var(--sf-obs)}
-      .sf-chart-readout{position:absolute;right:12px;top:12px;display:none;min-width:160px;padding:7px 9px;border:1px solid var(--sf-border);border-radius:6px;background:var(--sf-readout-bg);box-shadow:0 10px 24px rgba(15,23,42,.16);color:var(--sf-muted);font-size:11px;line-height:1.45;pointer-events:none}
-      .sf-chart-readout strong,.sf-chart-readout span{display:block}
-      .sf-chart-readout strong{color:var(--sf-text);margin-bottom:2px}
-      .sf-chart-shell.is-hovering .sf-chart-readout{display:block}
       .sf-empty-chart{height:138px;display:grid;place-items:center;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:8px;text-align:center;color:var(--sf-muted)}
       .sf-empty-chart div{font-size:24px;font-weight:800;color:var(--sf-text)}
       .sf-legend{font-size:11px;color:var(--sf-muted,#475569)}
