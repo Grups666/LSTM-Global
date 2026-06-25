@@ -211,8 +211,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           <span>${this.escape(basin.station_id || basin.id)}</span>
           <span>Valid ${this.escape(this.validDate(latest, this.selectedLead))}</span>
         </div>
-        <button class="sf-open-chart" type="button" data-sf-open-chart="${this.escape(basin.id)}">Open hydrograph</button>
-        <div class="sf-chart-preview" data-sf-open-chart="${this.escape(basin.id)}">
+        <div class="sf-chart-preview" data-sf-open-chart="${this.escape(basin.id)}" role="button" tabindex="0" aria-label="Open basin hydrograph">
           ${this.renderChartSvg(basin, this.selectedLead, 300, 160)}
         </div>
       </div>
@@ -220,6 +219,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.app.showInspector?.(this.basinTitle(basin), content);
     this.bindLeadButtons(basin);
     this.bindChartOpeners();
+    this.bindChartInteractions();
   }
 
   renderLeadButtons() {
@@ -244,10 +244,26 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   bindChartOpeners() {
     document.querySelectorAll("[data-sf-open-chart]").forEach((button) => {
-      button.addEventListener("click", () => {
+      const open = () => {
         const basin = this.byId.get(String(button.dataset.sfOpenChart));
         if (basin) this.openChartModal(basin);
+      };
+      button.addEventListener("click", open);
+      button.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          open();
+        }
       });
+    });
+  }
+
+  bindChartInteractions(root = document) {
+    root.querySelectorAll?.(".sf-chart-shell").forEach((shell) => {
+      if (shell.dataset.sfBound === "1") return;
+      shell.dataset.sfBound = "1";
+      shell.addEventListener("mousemove", (event) => this.handleChartPointer(event, shell));
+      shell.addEventListener("mouseleave", () => this.clearChartPointer(shell));
     });
   }
 
@@ -383,6 +399,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       ${this.renderChartSvg(basin, this.selectedLead, 760, 360)}
     `;
     this.bindLeadButtons(basin);
+    this.bindChartInteractions(this.chartModal);
   }
 
   closeChartModal() {
@@ -427,19 +444,94 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const lastDate = dates[dates.length - 1] || "";
 
     return `
-      <svg class="sf-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Streamflow forecast hydrograph">
-        <rect x="0" y="0" width="${width}" height="${height}" rx="8" fill="#f8fafc"></rect>
-        <line x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}" stroke="#cbd5e1"></line>
-        <line x1="${margin.left}" x2="${margin.left}" y1="${margin.top}" y2="${height - margin.bottom}" stroke="#cbd5e1"></line>
-        <text x="${margin.left}" y="${height - 10}" fill="#64748b" font-size="10">${this.escape(firstDate)}</text>
-        <text x="${width - margin.right}" y="${height - 10}" fill="#64748b" font-size="10" text-anchor="end">${this.escape(lastDate)}</text>
-        <text x="${margin.left - 8}" y="${margin.top + 8}" fill="#64748b" font-size="10" text-anchor="end">${this.formatMetric(max, 2)}</text>
-        <text x="${margin.left - 8}" y="${height - margin.bottom}" fill="#64748b" font-size="10" text-anchor="end">${this.formatMetric(min, 2)}</text>
-        ${band ? `<polygon points="${band}" fill="rgba(14,165,233,0.18)" stroke="none"></polygon>` : ""}
-        <polyline points="${polyline("p50")}" fill="none" stroke="#0284c7" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"></polyline>
-        <polyline points="${polyline("obs")}" fill="none" stroke="#0f172a" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round"></polyline>
-      </svg>
+      <div class="sf-chart-shell" data-sf-basin-id="${this.escape(basin.id)}" data-sf-lead="${this.escape(lead)}" data-sf-width="${width}" data-sf-height="${height}">
+        <svg class="sf-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Streamflow forecast hydrograph">
+          <rect class="sf-chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+          <line class="sf-axis" x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}"></line>
+          <line class="sf-axis" x1="${margin.left}" x2="${margin.left}" y1="${margin.top}" y2="${height - margin.bottom}"></line>
+          <text class="sf-axis-label" x="${margin.left}" y="${height - 10}" font-size="10">${this.escape(firstDate)}</text>
+          <text class="sf-axis-label" x="${width - margin.right}" y="${height - 10}" font-size="10" text-anchor="end">${this.escape(lastDate)}</text>
+          <text class="sf-axis-label" x="${margin.left - 8}" y="${margin.top + 8}" font-size="10" text-anchor="end">${this.formatMetric(max, 2)}</text>
+          <text class="sf-axis-label" x="${margin.left - 8}" y="${height - margin.bottom}" font-size="10" text-anchor="end">${this.formatMetric(min, 2)}</text>
+          ${band ? `<polygon class="sf-band" points="${band}" stroke="none"></polygon>` : ""}
+          <polyline class="sf-line-p50" points="${polyline("p50")}" fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+          <polyline class="sf-line-obs" points="${polyline("obs")}" fill="none" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round"></polyline>
+          <line class="sf-hover-v" x1="0" x2="0" y1="${margin.top}" y2="${height - margin.bottom}"></line>
+          <line class="sf-hover-h" x1="${margin.left}" x2="${width - margin.right}" y1="0" y2="0"></line>
+          <circle class="sf-hover-dot sf-hover-dot-p50" cx="0" cy="0" r="4"></circle>
+          <circle class="sf-hover-dot sf-hover-dot-obs" cx="0" cy="0" r="4"></circle>
+        </svg>
+        <div class="sf-chart-legend" aria-hidden="true">
+          <span><i class="sf-legend-band"></i>P05-P95</span>
+          <span><i class="sf-legend-p50"></i>P50</span>
+          <span><i class="sf-legend-obs"></i>Observed</span>
+        </div>
+        <div class="sf-chart-readout"></div>
+      </div>
     `;
+  }
+
+  handleChartPointer(event, shell) {
+    const svg = shell.querySelector(".sf-chart");
+    const basin = this.byId.get(String(shell.dataset.sfBasinId || ""));
+    const lead = Number(shell.dataset.sfLead || 1);
+    const width = Number(shell.dataset.sfWidth || 0);
+    const height = Number(shell.dataset.sfHeight || 0);
+    const series = basin ? this.data.series?.[basin.id]?.[String(lead)] : null;
+    if (!svg || !basin || !series?.valid_date?.length || !width || !height) return;
+
+    const rect = svg.getBoundingClientRect();
+    const margin = { top: 16, right: 18, bottom: 34, left: 48 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+    const pointerX = ((event.clientX - rect.left) / Math.max(1, rect.width)) * width;
+    const ratio = Math.max(0, Math.min(1, (pointerX - margin.left) / Math.max(1, plotWidth)));
+    const index = Math.round(ratio * (series.valid_date.length - 1));
+    const domain = this.chartYDomain(basin);
+    const min = domain.min;
+    const values = this.chartValues(series);
+    const max = Math.max(domain.max, ...values);
+    const span = Math.max(max - min, 1e-6);
+    const x = margin.left + (series.valid_date.length <= 1 ? 0 : (index / (series.valid_date.length - 1)) * plotWidth);
+    const y = (value) => margin.top + (1 - ((value - min) / span)) * plotHeight;
+    const p50 = this.nonnegative(series.p50?.[index]);
+    const obs = this.nonnegative(series.obs?.[index]);
+    const p05 = this.nonnegative(series.p05?.[index]);
+    const p95 = this.nonnegative(series.p95?.[index]);
+    const yAnchor = Number.isFinite(p50) ? y(p50) : Number.isFinite(obs) ? y(obs) : margin.top + plotHeight / 2;
+
+    shell.style.setProperty("--sf-hover-x", x.toFixed(1));
+    shell.style.setProperty("--sf-hover-y", yAnchor.toFixed(1));
+    const p50Dot = shell.querySelector(".sf-hover-dot-p50");
+    const obsDot = shell.querySelector(".sf-hover-dot-obs");
+    if (p50Dot) {
+      p50Dot.setAttribute("cx", x.toFixed(1));
+      p50Dot.setAttribute("cy", Number.isFinite(p50) ? y(p50).toFixed(1) : "-20");
+    }
+    if (obsDot) {
+      obsDot.setAttribute("cx", x.toFixed(1));
+      obsDot.setAttribute("cy", Number.isFinite(obs) ? y(obs).toFixed(1) : "-20");
+    }
+    shell.classList.add("is-hovering");
+    const readout = shell.querySelector(".sf-chart-readout");
+    if (readout) {
+      readout.innerHTML = `
+        <strong>${this.escape(series.valid_date[index] || "")} / L${this.escape(lead)}</strong>
+        <span>P50 ${this.escape(this.formatFlow(p50))}</span>
+        <span>P05-P95 ${this.escape(this.formatFlow(p05))} - ${this.escape(this.formatFlow(p95))}</span>
+        <span>Obs ${this.escape(this.formatFlow(obs))}</span>
+      `;
+    }
+  }
+
+  clearChartPointer(shell) {
+    shell.classList.remove("is-hovering");
+    shell.querySelector(".sf-chart-readout").innerHTML = "";
+  }
+
+  nonnegative(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : NaN;
   }
 
   chartValues(series) {
@@ -481,42 +573,72 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const style = document.createElement("style");
     style.id = "streamflow-forecast-styles";
     style.textContent = `
+      .sf-overview,.sf-basin-panel,.sf-modal{--sf-surface:#fff;--sf-surface-soft:#f8fafc;--sf-surface-chip:#f1f5f9;--sf-border:#e2e8f0;--sf-border-strong:#cbd5e1;--sf-text:#0f172a;--sf-muted:#64748b;--sf-focus:#2563eb;--sf-focus-soft:rgba(37,99,235,.16);--sf-button:#fff;--sf-button-active:#0f172a;--sf-button-active-text:#fff;--sf-chart-bg:#f8fafc;--sf-band:rgba(14,165,233,.18);--sf-p50:#0284c7;--sf-obs:#0f172a;--sf-overlay:rgba(15,23,42,.58);--sf-shadow:0 24px 80px rgba(15,23,42,.35);--sf-readout-bg:rgba(255,255,255,.94)}
+      body.theme-dark .sf-overview,body.theme-dark .sf-basin-panel,body.theme-dark .sf-modal{--sf-surface:#111827;--sf-surface-soft:#1f2937;--sf-surface-chip:#182235;--sf-border:#334155;--sf-border-strong:#475569;--sf-text:#e5e7eb;--sf-muted:#94a3b8;--sf-focus:#38bdf8;--sf-focus-soft:rgba(56,189,248,.18);--sf-button:#1f2937;--sf-button-active:#38bdf8;--sf-button-active-text:#082f49;--sf-chart-bg:#0f172a;--sf-band:rgba(56,189,248,.20);--sf-p50:#38bdf8;--sf-obs:#f8fafc;--sf-overlay:rgba(2,6,23,.72);--sf-shadow:0 24px 80px rgba(0,0,0,.58);--sf-readout-bg:rgba(17,24,39,.94)}
       .sf-lead-row{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
-      .sf-lead{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:6px;padding:6px 9px;font-size:12px;font-weight:700;cursor:pointer}
-      .sf-lead.active{background:#0f172a;border-color:#0f172a;color:#fff}
+      .sf-lead{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:6px 9px;font-size:12px;font-weight:700;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,color .16s ease}
+      .sf-lead:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
+      .sf-lead.active{background:var(--sf-button-active);border-color:var(--sf-button-active);color:var(--sf-button-active-text)}
       .sf-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0 0 14px}
-      .sf-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:9px}
-      .sf-card-value{font-size:16px;font-weight:800;color:#0f172a;line-height:1.2;overflow-wrap:anywhere}
-      .sf-card-label{font-size:11px;color:#64748b;margin-top:3px}
-      .sf-meta-line{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 14px;color:#64748b;font-size:11px}
-      .sf-meta-line span,.sf-modal-meta{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:4px 8px}
+      .sf-card{background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:9px}
+      .sf-card-value{font-size:16px;font-weight:800;color:var(--sf-text);line-height:1.2;overflow-wrap:anywhere}
+      .sf-card-label{font-size:11px;color:var(--sf-muted);margin-top:3px}
+      .sf-meta-line{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 14px;color:var(--sf-muted);font-size:11px}
+      .sf-meta-line span,.sf-modal-meta{background:var(--sf-surface-chip);border:1px solid var(--sf-border);border-radius:999px;padding:4px 8px}
       .sf-table{width:100%;border-collapse:collapse;font-size:11px}
-      .sf-table th,.sf-table td{padding:6px;border-bottom:1px solid #e2e8f0;text-align:right}
+      .sf-table th,.sf-table td{padding:6px;border-bottom:1px solid var(--sf-border);text-align:right;color:var(--sf-text)}
       .sf-table th:first-child,.sf-table td:first-child{text-align:left}
       .sf-status{display:flex;justify-content:space-between;gap:8px;border-radius:6px;padding:9px 10px;margin:0 0 12px;font-size:12px}
       .sf-status.validated{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
       .sf-status.label{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
-      .sf-status.prediction{background:#f8fafc;color:#475569;border:1px solid #cbd5e1}
-      .sf-open-chart{width:100%;height:34px;border:1px solid #0f172a;background:#0f172a;color:#fff;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;margin:2px 0 10px}
-      .sf-chart-preview{cursor:pointer}
-      .sf-chart{width:100%;height:auto;display:block;border:1px solid #e2e8f0;border-radius:8px}
-      .sf-empty-chart{height:138px;display:grid;place-items:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;text-align:center;color:#64748b}
-      .sf-empty-chart div{font-size:24px;font-weight:800;color:#0f172a}
-      .sf-legend{font-size:11px;color:#475569}
+      .sf-status.prediction{background:var(--sf-surface-soft);color:var(--sf-muted);border:1px solid var(--sf-border-strong)}
+      body.theme-dark .sf-status.validated{background:rgba(6,95,70,.24);color:#a7f3d0;border-color:rgba(16,185,129,.48)}
+      body.theme-dark .sf-status.label{background:rgba(29,78,216,.22);color:#bfdbfe;border-color:rgba(96,165,250,.45)}
+      .sf-chart-preview{cursor:pointer;border:1px solid transparent;border-radius:8px;padding:4px;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,transform .16s ease}
+      .sf-chart-preview:hover,.sf-chart-preview:focus-visible{border-color:var(--sf-focus);background:var(--sf-focus-soft);box-shadow:0 0 0 2px var(--sf-focus-soft),0 12px 28px rgba(15,23,42,.16);transform:translateY(-1px);outline:0}
+      .sf-chart-shell{position:relative}
+      .sf-chart{width:100%;height:auto;display:block;border:1px solid var(--sf-border);border-radius:8px}
+      .sf-chart-bg{fill:var(--sf-chart-bg)}
+      .sf-axis{stroke:var(--sf-border-strong)}
+      .sf-axis-label{fill:var(--sf-muted)}
+      .sf-band{fill:var(--sf-band)}
+      .sf-line-p50{stroke:var(--sf-p50)}
+      .sf-line-obs{stroke:var(--sf-obs)}
+      .sf-hover-v{stroke:var(--sf-muted);stroke-width:1;stroke-dasharray:4 4;opacity:0;transform:translateX(calc(var(--sf-hover-x,0) * 1px))}
+      .sf-hover-h{stroke:var(--sf-muted);stroke-width:1;stroke-dasharray:4 4;opacity:0;transform:translateY(calc(var(--sf-hover-y,0) * 1px))}
+      .sf-hover-dot{opacity:0;stroke:var(--sf-chart-bg);stroke-width:2}
+      .sf-hover-dot-p50{fill:var(--sf-p50)}
+      .sf-hover-dot-obs{fill:var(--sf-obs)}
+      .sf-chart-shell.is-hovering .sf-hover-v,.sf-chart-shell.is-hovering .sf-hover-h,.sf-chart-shell.is-hovering .sf-hover-dot{opacity:1}
+      .sf-chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin:7px 0 0;color:var(--sf-muted);font-size:11px}
+      .sf-chart-legend span{display:inline-flex;align-items:center;gap:5px}
+      .sf-chart-legend i{display:inline-block;width:18px;height:0;border-top:3px solid currentColor;border-radius:999px}
+      .sf-legend-band{height:8px!important;border:0!important;background:var(--sf-band);box-shadow:0 0 0 1px var(--sf-border) inset}
+      .sf-legend-p50{color:var(--sf-p50)}
+      .sf-legend-obs{color:var(--sf-obs)}
+      .sf-chart-readout{position:absolute;right:12px;top:12px;display:none;min-width:160px;padding:7px 9px;border:1px solid var(--sf-border);border-radius:6px;background:var(--sf-readout-bg);box-shadow:0 10px 24px rgba(15,23,42,.16);color:var(--sf-muted);font-size:11px;line-height:1.45;pointer-events:none}
+      .sf-chart-readout strong,.sf-chart-readout span{display:block}
+      .sf-chart-readout strong{color:var(--sf-text);margin-bottom:2px}
+      .sf-chart-shell.is-hovering .sf-chart-readout{display:block}
+      .sf-empty-chart{height:138px;display:grid;place-items:center;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:8px;text-align:center;color:var(--sf-muted)}
+      .sf-empty-chart div{font-size:24px;font-weight:800;color:var(--sf-text)}
+      .sf-legend{font-size:11px;color:var(--sf-muted,#475569)}
+      body.theme-dark .sf-legend{color:#94a3b8}
       .sf-gradient{height:9px;border-radius:999px;background:linear-gradient(90deg,#7c3aed,#2563eb,#0ea5e9,#10b981,#f59e0b);margin:6px 0}
       .sf-legend-ticks,.sf-symbol-row{display:flex;justify-content:space-between;gap:6px}
       .sf-symbol-row{align-items:center;margin-top:6px}
       .sf-dot-symbol{width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block}
       .sf-diamond-symbol{width:8px;height:8px;background:#60a5fa;display:inline-block;transform:rotate(45deg)}
       .sf-triangle-symbol{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #94a3b8;display:inline-block}
-      .sf-modal{position:fixed;inset:0;background:rgba(15,23,42,.58);z-index:5000;display:none;align-items:center;justify-content:center;padding:24px}
+      .sf-modal{position:fixed;inset:0;background:var(--sf-overlay);z-index:5000;display:none;align-items:center;justify-content:center;padding:24px}
       .sf-modal.visible{display:flex}
-      .sf-modal-card{width:min(900px,96vw);max-height:92vh;overflow:auto;background:#fff;border-radius:8px;box-shadow:0 24px 80px rgba(15,23,42,.35);padding:18px}
+      .sf-modal-card{width:min(900px,96vw);max-height:92vh;overflow:auto;background:var(--sf-surface);border:1px solid var(--sf-border);border-radius:8px;box-shadow:var(--sf-shadow);padding:18px}
       .sf-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
-      .sf-modal-title{margin:0;color:#0f172a;font-size:18px;line-height:1.25}
-      .sf-kicker{margin:0 0 4px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-size:11px;font-weight:800}
-      .sf-modal-close{border:1px solid #cbd5e1;background:#fff;color:#0f172a;border-radius:6px;padding:7px 10px;font-weight:800;cursor:pointer}
-      .sf-modal-meta{display:inline-block;margin:0 0 12px;color:#64748b;font-size:12px}
+      .sf-modal-title{margin:0;color:var(--sf-text);font-size:18px;line-height:1.25}
+      .sf-kicker{margin:0 0 4px;color:var(--sf-muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px;font-weight:800}
+      .sf-modal-close{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:7px 10px;font-weight:800;cursor:pointer}
+      .sf-modal-close:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
+      .sf-modal-meta{display:inline-block;margin:0 0 12px;color:var(--sf-muted);font-size:12px}
     `;
     document.head.appendChild(style);
   }
