@@ -406,17 +406,12 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
     const dates = series.valid_date;
-    const values = [];
-    for (const key of ["obs", "p05", "p50", "p95"]) {
-      for (const raw of series[key] || []) {
-        const value = Number(raw);
-        if (Number.isFinite(value) && value >= 0) values.push(value);
-      }
-    }
+    const values = this.chartValues(series);
     if (!values.length) return `<div class="sf-empty-chart"><div>No valid series</div><span>Lead ${lead}</span></div>`;
 
-    const max = Math.max(...values);
-    const min = Math.min(0, ...values);
+    const domain = this.chartYDomain(basin);
+    const min = domain.min;
+    const max = Math.max(domain.max, ...values);
     const span = Math.max(max - min, 1e-6);
     const x = (i) => margin.left + (dates.length <= 1 ? 0 : (i / (dates.length - 1)) * plotWidth);
     const y = (value) => margin.top + (1 - ((value - min) / span)) * plotHeight;
@@ -445,6 +440,27 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <polyline points="${polyline("obs")}" fill="none" stroke="#0f172a" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round"></polyline>
       </svg>
     `;
+  }
+
+  chartValues(series) {
+    const values = [];
+    for (const key of ["obs", "p05", "p50", "p95"]) {
+      for (const raw of series?.[key] || []) {
+        const value = Number(raw);
+        if (Number.isFinite(value) && value >= 0) values.push(value);
+      }
+    }
+    return values;
+  }
+
+  chartYDomain(basin) {
+    const byLead = this.data.series?.[basin.id] || {};
+    const values = [];
+    for (let lead = 1; lead <= 7; lead += 1) {
+      values.push(...this.chartValues(byLead[String(lead)]));
+    }
+    const max = values.length ? Math.max(...values) : 1;
+    return { min: 0, max: Math.max(max, 1e-6) };
   }
 
   validDate(latest, lead) {
