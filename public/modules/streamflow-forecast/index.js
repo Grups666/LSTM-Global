@@ -105,11 +105,13 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
         const selected = this.selected?.id === basin.id;
         const hovered = this.app.hoveredLayer?.id === this.layerId && this.app.hoveredFeatureId === basin.id;
+        const forecastSource = this.latestSourceForLead(basin);
+        const fallbackForecast = forecastSource && forecastSource !== "primary";
         const radius = selected ? 6.8 : hovered ? 5.6 : 3.9;
         ctx.globalAlpha = selected ? 0.98 : basin.status === "prediction_only" ? 0.72 : 0.84;
         ctx.fillStyle = this.skillColor(this.metricValue(basin, "nse"));
-        ctx.strokeStyle = selected ? "#0f172a" : hovered ? "#1d4ed8" : "rgba(15,23,42,0.34)";
-        ctx.lineWidth = selected ? 2.2 : hovered ? 1.8 : 0.7;
+        ctx.strokeStyle = fallbackForecast ? "#f59e0b" : selected ? "#0f172a" : hovered ? "#1d4ed8" : "rgba(15,23,42,0.34)";
+        ctx.lineWidth = fallbackForecast ? (selected || hovered ? 2.4 : 1.6) : selected ? 2.2 : hovered ? 1.8 : 0.7;
 
         if (basin.status === "prediction_only") {
           this.drawTriangle(ctx, x, y, radius + 0.8);
@@ -171,6 +173,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   showOverview() {
     const meta = this.data.meta || {};
     const summary = Array.isArray(this.data.leadSummary) ? this.data.leadSummary : [];
+    const sourceCounts = meta.latestForecastSourceCounts || {};
     const content = `
       <div class="sf-overview">
         <div class="sf-lead-row">${this.renderLeadButtons()}</div>
@@ -178,6 +181,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Basins", this.formatInt(meta.basinCount || this.basins.length))}
           ${this.metricCard("Fine-tuned", this.formatInt(meta.fineTunedValidatedBasinCount ?? meta.recentValidatedBasinCount))}
           ${this.metricCard("Latest run", this.formatInt(meta.latestStateForecastBasinCount))}
+          ${this.metricCard("Fallback rows", this.formatInt(sourceCounts.three_model || sourceCounts.fallback || 0))}
           ${this.metricCard("Prediction only", this.formatInt(meta.predictionOnlyBasinCount))}
         </div>
         <div class="sf-meta-line">
@@ -205,6 +209,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Pairs", this.formatInt(metrics?.n))}
           ${this.metricCard("Latest P50", this.formatFlow(latest?.p50))}
           ${this.metricCard("P05-P95", `${this.formatFlow(latest?.p05)} - ${this.formatFlow(latest?.p95)}`)}
+          ${this.metricCard("Forecast source", this.forecastSourceLabel(latest))}
         </div>
         <div class="sf-meta-line">
           <span>${this.escape(basin.country || "unknown")}</span>
@@ -322,6 +327,18 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     return basin.latestForecast?.[String(this.selectedLead)] || null;
   }
 
+  latestSourceForLead(basin) {
+    return String(basin.latestForecast?.[String(this.selectedLead)]?.rowSource || "");
+  }
+
+  forecastSourceLabel(latest) {
+    const source = String(latest?.rowSource || "");
+    if (!source) return "No latest";
+    if (source === "primary") return "Primary";
+    if (source === "three_model") return "Fallback";
+    return source.replaceAll("_", " ");
+  }
+
   metricValue(basin, key) {
     const value = basin.metrics?.[String(this.selectedLead)]?.[key];
     return Number.isFinite(Number(value)) ? Number(value) : null;
@@ -353,7 +370,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-legend">
           <div class="sf-gradient"></div>
           <div class="sf-legend-ticks"><span>0 or below</span><span>0.4</span><span>0.8+</span></div>
-          <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>Fine-tuned <span class="sf-diamond-symbol"></span>Label only <span class="sf-triangle-symbol"></span>Prediction only</div>
+          <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>Fine-tuned <span class="sf-diamond-symbol"></span>Label only <span class="sf-triangle-symbol"></span>Prediction only <span class="sf-fallback-symbol"></span>Fallback forecast</div>
         </div>
       `
     });
@@ -682,6 +699,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-dot-symbol{width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block}
       .sf-diamond-symbol{width:8px;height:8px;background:#60a5fa;display:inline-block;transform:rotate(45deg)}
       .sf-triangle-symbol{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #94a3b8;display:inline-block}
+      .sf-fallback-symbol{width:11px;height:11px;border:2px solid #f59e0b;border-radius:50%;display:inline-block;background:transparent}
       .sf-modal{position:fixed;inset:0;background:var(--sf-overlay);z-index:5000;display:none;align-items:center;justify-content:center;padding:24px}
       .sf-modal.visible{display:flex}
       .sf-modal-card{width:min(900px,96vw);max-height:92vh;overflow:auto;background:var(--sf-surface);border:1px solid var(--sf-border);border-radius:8px;box-shadow:var(--sf-shadow);padding:18px}
