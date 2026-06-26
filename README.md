@@ -40,19 +40,19 @@ public/
   modules/streamflow-forecast/
     module.json
     index.js
-    data/dashboard-data-state-three-model-20260621.json
+    data/dashboard-data-state-ensemble-fallback-20260621.json
 ```
 
 ## Current Data
 
-- Latest forecast model: experimental three-model lead-wise GFS state-forecaster ensemble. The members are the conservative conditional-gate state forecaster, the 12M persistence-blend state forecaster, and the train7M source x lead persistence-blend state forecaster. The comparison configuration is tracked in `configs/gfs_three_model_leadwise_ensemble_20260626.json`.
+- Latest forecast model: primary two-checkpoint GFS state-forecaster ensemble with conservative fallback coverage. Primary rows come from the scheduled two-checkpoint ensemble; missing basin/lead rows are filled from the three-model lead-wise ensemble only when the primary output has no row.
 - Forecast horizon: lead 1-7 days.
 - Forecast forcing: GFS operational forcing adapter, issue-date realistic lead 1-7 basin forcing.
 - Basins: 4057 GRDC-Caravan basins.
 - Fine-tuned/validated basins: 1528 USGS/ECCC/Australia matched basins.
-- Latest operational-style state forecast basins: 1263 basins with enough observed-flow history before auto-selected issue date 2026-06-21 in at least two ensemble members.
+- Latest operational-style state forecast basins: 1263 basins for auto-selected issue date 2026-06-21. Of these, 783 basins come from the primary two-checkpoint ensemble and 480 additional basins are fallback coverage.
 - Prediction-only basins: 2003 basins without connected recent streamflow observations; 526 additional basins have labels but no held-out validated series in this dashboard split.
-- Historical validation curves use the three-model lead-wise ensemble matched predictions. Held-out test median NSE by lead: L1 0.526, L2 0.290, L3 0.091, L4 -0.071, L5 -0.176, L6 -0.301, L7 -0.440. Median NSE/KGE/RMSE are the primary dashboard metrics because a few low-variance basins make mean NSE unstable.
+- Historical validation curves currently use the three-model lead-wise ensemble matched predictions because the fallback layer is an issue-date coverage merge, not a full historical validation product. Held-out test median NSE by lead: L1 0.525, L2 0.290, L3 0.091, L4 -0.072, L5 -0.176, L6 -0.301, L7 -0.442. Median NSE/KGE/RMSE are the primary dashboard metrics because a few low-variance basins make mean NSE unstable.
 
 ## Local Preview
 
