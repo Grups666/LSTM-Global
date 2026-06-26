@@ -12,6 +12,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.layerName = manifest.layerName || manifest.provides?.layers?.[0]?.name || "Global Streamflow Forecast";
     this.legendId = `${manifest.id || "streamflow-forecast"}-legend`;
     this.data = null;
+    this.datasetsByMode = new Map();
+    this.datasetMode = "coverage";
     this.basins = [];
     this.byId = new Map();
     this.selected = null;
@@ -28,7 +30,32 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   async onLoad() {
     const dataset = this.manifest.datasets?.find((item) => item.id === "streamflow-forecast-dashboard");
-    this.data = await this.fetchJson(this.resolve(dataset?.file || "./data/dashboard-data.json"));
+    this.datasetsByMode.set("coverage", {
+      label: "Coverage",
+      data: await this.fetchJson(this.resolve(dataset?.file || "./data/dashboard-data.json"))
+    });
+    const freshnessDataset = this.manifest.datasets?.find((item) => item.id === "streamflow-forecast-dashboard-freshness");
+    if (freshnessDataset?.file) {
+      try {
+        this.datasetsByMode.set("freshness", {
+          label: "Freshness",
+          data: await this.fetchJson(this.resolve(freshnessDataset.file))
+        });
+      } catch (error) {
+        console.warn("Freshness-first streamflow dataset unavailable", error);
+      }
+    }
+    this.setDataPayload(this.datasetsByMode.get(this.datasetMode).data);
+    this.addLayer();
+    this.ensureStyles();
+    this.ensureLegend();
+    this.showOverview();
+    Foundation.eventBus.on(Foundation.Events.FEATURE_CLICK, this.handleFeatureClick);
+    this.app.draw?.();
+  }
+
+  setDataPayload(data) {
+    this.data = data;
     this.basins = (this.data.basins || [])
       .filter((basin) => Number.isFinite(Number(basin.lon)) && Number.isFinite(Number(basin.lat)))
       .map((basin) => ({
@@ -38,12 +65,6 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         lat: Number(basin.lat)
       }));
     this.byId = new Map(this.basins.map((basin) => [basin.id, basin]));
-    this.addLayer();
-    this.ensureStyles();
-    this.ensureLegend();
-    this.showOverview();
-    Foundation.eventBus.on(Foundation.Events.FEATURE_CLICK, this.handleFeatureClick);
-    this.app.draw?.();
   }
 
   onUnload() {
@@ -176,6 +197,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const sourceCounts = meta.latestForecastSourceCounts || {};
     const content = `
       <div class="sf-overview">
+        ${this.renderModeButtons()}
         <div class="sf-lead-row">${this.renderLeadButtons()}</div>
         <div class="sf-card-grid">
           ${this.metricCard("Basins", this.formatInt(meta.basinCount || this.basins.length))}
@@ -192,6 +214,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       </div>
     `;
     this.app.showInspector?.("LSTM Global", content);
+    this.bindModeButtons(null);
     this.bindLeadButtons(null);
   }
 
@@ -200,6 +223,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const latest = this.latestForLead(basin);
     const content = `
       <div class="sf-basin-panel">
+        ${this.renderModeButtons()}
         <div class="sf-lead-row">${this.renderLeadButtons()}</div>
         ${this.statusBanner(basin)}
         <div class="sf-card-grid">
@@ -222,9 +246,22 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       </div>
     `;
     this.app.showInspector?.(this.basinTitle(basin), content);
+    this.bindModeButtons(basin);
     this.bindLeadButtons(basin);
     this.bindChartOpeners();
     this.bindChartInteractions();
+  }
+
+  renderModeButtons() {
+    if (this.datasetsByMode.size < 2) return "";
+    return `
+      <div class="sf-mode-row">
+        ${Array.from(this.datasetsByMode.entries()).map(([mode, entry]) => {
+          const active = mode === this.datasetMode ? "active" : "";
+          return `<button class="sf-mode ${active}" type="button" data-sf-mode="${mode}">${this.escape(entry.label)}</button>`;
+        }).join("")}
+      </div>
+    `;
   }
 
   renderLeadButtons() {
@@ -245,6 +282,32 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         this.app.draw?.();
       });
     });
+  }
+
+  bindModeButtons(basin) {
+    document.querySelectorAll("[data-sf-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const mode = button.dataset.sfMode || "coverage";
+        this.setDatasetMode(mode, basin?.id || null);
+      });
+    });
+  }
+
+  setDatasetMode(mode, selectedId = null) {
+    const entry = this.datasetsByMode.get(mode);
+    if (!entry || mode === this.datasetMode) return;
+    this.datasetMode = mode;
+    const keepSelectedId = selectedId || this.selected?.id || null;
+    this.setDataPayload(entry.data);
+    this.selected = keepSelectedId ? this.byId.get(keepSelectedId) || null : null;
+    if (this.selected) this.showInspector(this.selected);
+    else this.showOverview();
+    if (this.activeModalBasin) {
+      this.activeModalBasin = this.selected || this.byId.get(this.activeModalBasin.id) || null;
+      if (this.activeModalBasin) this.renderChartModal(this.activeModalBasin);
+      else this.closeChartModal();
+    }
+    this.app.draw?.();
   }
 
   bindChartOpeners() {
@@ -647,6 +710,10 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-lead{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:6px 9px;font-size:12px;font-weight:700;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,color .16s ease}
       .sf-lead:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
       .sf-lead.active{background:var(--sf-button-active);border-color:var(--sf-button-active);color:var(--sf-button-active-text)}
+      .sf-mode-row{display:flex;gap:8px;margin:0 0 10px}
+      .sf-mode{border:1px solid var(--sf-border-strong);background:var(--sf-surface-muted);color:var(--sf-muted);border-radius:6px;padding:6px 10px;font-size:12px;font-weight:800;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,color .16s ease}
+      .sf-mode:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
+      .sf-mode.active{background:var(--sf-text);border-color:var(--sf-text);color:var(--sf-surface)}
       .sf-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0 0 14px}
       .sf-card{background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:9px}
       .sf-card-value{font-size:16px;font-weight:800;color:var(--sf-text);line-height:1.2;overflow-wrap:anywhere}

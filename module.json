@@ -17,6 +17,10 @@
     {
       "id": "streamflow-forecast-dashboard",
       "file": "./public/modules/streamflow-forecast/data/dashboard-data-state-current.json"
+    },
+    {
+      "id": "streamflow-forecast-dashboard-freshness",
+      "file": "./public/modules/streamflow-forecast/data/dashboard-data-state-freshness-current.json"
     }
   ],
   "provides": {
