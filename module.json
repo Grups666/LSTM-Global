@@ -2,8 +2,8 @@
   "id": "streamflow-forecast",
   "name": "LSTM Global Streamflow Forecast",
   "version": "0.1.0",
-  "assetVersion": "2026-06-26-auto-20260621-dashboard",
-  "description": "Global 1-7 day probabilistic streamflow forecast preview from the GFS residual-state forecaster with the conservative conditional persistence gate and recent supervised validation where daily observations are available.",
+  "assetVersion": "2026-06-26-ensemble-20260621-dashboard",
+  "description": "Global 1-7 day probabilistic streamflow forecast preview from the validation-tuned two-checkpoint GFS state-forecaster ensemble, with recent supervised validation where daily observations are available.",
   "author": "Spatial Research Team",
   "icon": "activity",
   "basePath": "https://grups666.github.io/LSTM-Global/",
@@ -16,7 +16,7 @@
   "datasets": [
     {
       "id": "streamflow-forecast-dashboard",
-      "file": "./public/modules/streamflow-forecast/data/dashboard-data-state-residual-hist7-conditional-gate-auto-20260621.json"
+      "file": "./public/modules/streamflow-forecast/data/dashboard-data-state-ensemble-20260621.json"
     }
   ],
   "provides": {
@@ -45,7 +45,7 @@
       {
         "id": "recent-gfs-streamflow-validation",
         "type": "forecast-validation-summary",
-        "description": "Lead-wise P05/P50/P95 streamflow forecast series from the residual-state forecaster plus the conservative conditional persistence gate, joined with recent observed daily discharge where available."
+        "description": "Lead-wise P05/P50/P95 streamflow forecast series from the two-checkpoint GFS state-forecaster ensemble, joined with recent observed daily discharge where available."
       }
     ]
   }
