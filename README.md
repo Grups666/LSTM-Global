@@ -40,7 +40,7 @@ public/
   modules/streamflow-forecast/
     module.json
     index.js
-    data/dashboard-data-state-ensemble-fallback-20260621.json
+    data/dashboard-data-state-current.json
 ```
 
 ## Current Data
@@ -53,6 +53,13 @@ public/
 - Latest operational-style state forecast basins: 1263 basins for auto-selected issue date 2026-06-21. Of these, 783 basins come from the primary two-checkpoint ensemble and 480 additional basins are fallback coverage.
 - Prediction-only basins: 2003 basins without connected recent streamflow observations; 526 additional basins have labels but no held-out validated series in this dashboard split.
 - Historical validation curves currently use the three-model lead-wise ensemble matched predictions because the fallback layer is an issue-date coverage merge, not a full historical validation product. Held-out test median NSE by lead: L1 0.525, L2 0.290, L3 0.091, L4 -0.072, L5 -0.176, L6 -0.301, L7 -0.442. Median NSE/KGE/RMSE are the primary dashboard metrics because a few low-variance basins make mean NSE unstable.
+
+The module manifest points to the stable `dashboard-data-state-current.json`
+asset. Regenerate it from the latest fallback coverage CSV with:
+
+```powershell
+python scripts\build_lstm_global_fallback_dashboard.py --update-manifests
+```
 
 ## Local Preview
 
