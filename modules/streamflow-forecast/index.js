@@ -128,11 +128,12 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         const hovered = this.app.hoveredLayer?.id === this.layerId && this.app.hoveredFeatureId === basin.id;
         const forecastSource = this.latestSourceForLead(basin);
         const fallbackForecast = forecastSource && forecastSource !== "primary";
+        const targetedAdapter = Boolean(basin.targetedAdapterCandidate);
         const radius = selected ? 6.8 : hovered ? 5.6 : 3.9;
         ctx.globalAlpha = selected ? 0.98 : basin.status === "prediction_only" ? 0.72 : 0.84;
         ctx.fillStyle = this.skillColor(this.metricValue(basin, "nse"));
-        ctx.strokeStyle = fallbackForecast ? "#f59e0b" : selected ? "#0f172a" : hovered ? "#1d4ed8" : "rgba(15,23,42,0.34)";
-        ctx.lineWidth = fallbackForecast ? (selected || hovered ? 2.4 : 1.6) : selected ? 2.2 : hovered ? 1.8 : 0.7;
+        ctx.strokeStyle = fallbackForecast ? "#f59e0b" : targetedAdapter ? "#a855f7" : selected ? "#0f172a" : hovered ? "#1d4ed8" : "rgba(15,23,42,0.34)";
+        ctx.lineWidth = fallbackForecast || targetedAdapter ? (selected || hovered ? 2.4 : 1.6) : selected ? 2.2 : hovered ? 1.8 : 0.7;
 
         if (basin.status === "prediction_only") {
           this.drawTriangle(ctx, x, y, radius + 0.8);
@@ -234,6 +235,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Latest P50", this.formatFlow(latest?.p50))}
           ${this.metricCard("P05-P95", `${this.formatFlow(latest?.p05)} - ${this.formatFlow(latest?.p95)}`)}
           ${this.metricCard("Forecast source", this.forecastSourceLabel(latest))}
+          ${this.metricCard("Effective status", this.effectivenessLabel(basin))}
+          ${this.metricCard("Best route", this.bestRouteLabel(basin))}
         </div>
         <div class="sf-meta-line">
           <span>${this.escape(basin.country || "unknown")}</span>
@@ -355,12 +358,19 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   statusBanner(basin) {
-    const label = basin.status === "fine_tuned_validated"
+    const effect = this.effectivenessLabel(basin);
+    const label = basin.effectivenessStatus && basin.effectivenessStatus !== "unknown"
+      ? effect
+      : basin.status === "fine_tuned_validated"
       ? "Fine-tuned validation"
       : basin.status === "supervised_label_available"
         ? "Supervised label only"
         : "Prediction only";
-    const cls = basin.status === "fine_tuned_validated"
+    const cls = basin.effectivenessStatus === "adapter_candidate"
+      ? "adapter"
+      : basin.potentialEffective
+        ? "validated"
+        : basin.status === "fine_tuned_validated"
       ? "validated"
       : basin.status === "supervised_label_available"
         ? "label"
@@ -402,6 +412,25 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     return source.replaceAll("_", " ");
   }
 
+  effectivenessLabel(basin) {
+    const status = String(basin.effectivenessStatus || "unknown");
+    const labels = {
+      priority_effective: "Priority effective",
+      proven_effective: "Proven effective",
+      adapter_candidate: "Adapter candidate",
+      unproven: "Unproven",
+      insufficient_data: "Insufficient data",
+      unknown: "Unknown"
+    };
+    return labels[status] || status.replaceAll("_", " ");
+  }
+
+  bestRouteLabel(basin) {
+    const route = String(basin.bestEffectivenessCandidate || "");
+    if (!route) return "No probe";
+    return route.replaceAll("_", " ");
+  }
+
   metricValue(basin, key) {
     const value = basin.metrics?.[String(this.selectedLead)]?.[key];
     return Number.isFinite(Number(value)) ? Number(value) : null;
@@ -433,7 +462,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-legend">
           <div class="sf-gradient"></div>
           <div class="sf-legend-ticks"><span>0 or below</span><span>0.4</span><span>0.8+</span></div>
-          <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>Fine-tuned <span class="sf-diamond-symbol"></span>Label only <span class="sf-triangle-symbol"></span>Prediction only <span class="sf-fallback-symbol"></span>Fallback forecast</div>
+          <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>Fine-tuned <span class="sf-diamond-symbol"></span>Label only <span class="sf-triangle-symbol"></span>Prediction only <span class="sf-adapter-symbol"></span>Adapter candidate <span class="sf-fallback-symbol"></span>Fallback forecast</div>
         </div>
       `
     });
@@ -725,9 +754,11 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-table th:first-child,.sf-table td:first-child{text-align:left}
       .sf-status{display:flex;justify-content:space-between;gap:8px;border-radius:6px;padding:9px 10px;margin:0 0 12px;font-size:12px}
       .sf-status.validated{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
+      .sf-status.adapter{background:#faf5ff;color:#7e22ce;border:1px solid #e9d5ff}
       .sf-status.label{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
       .sf-status.prediction{background:var(--sf-surface-soft);color:var(--sf-muted);border:1px solid var(--sf-border-strong)}
       body.theme-dark .sf-status.validated{background:rgba(6,95,70,.24);color:#a7f3d0;border-color:rgba(16,185,129,.48)}
+      body.theme-dark .sf-status.adapter{background:rgba(88,28,135,.26);color:#e9d5ff;border-color:rgba(192,132,252,.45)}
       body.theme-dark .sf-status.label{background:rgba(29,78,216,.22);color:#bfdbfe;border-color:rgba(96,165,250,.45)}
       .sf-chart-preview{cursor:pointer;border:1px solid transparent;border-radius:8px;padding:4px;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,transform .16s ease}
       .sf-chart-preview:hover,.sf-chart-preview:focus-visible{border-color:var(--sf-focus);background:var(--sf-focus-soft);box-shadow:0 0 0 2px var(--sf-focus-soft),0 12px 28px rgba(15,23,42,.16);transform:translateY(-1px);outline:0}
@@ -766,6 +797,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-dot-symbol{width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block}
       .sf-diamond-symbol{width:8px;height:8px;background:#60a5fa;display:inline-block;transform:rotate(45deg)}
       .sf-triangle-symbol{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #94a3b8;display:inline-block}
+      .sf-adapter-symbol{width:11px;height:11px;border:2px solid #a855f7;border-radius:50%;display:inline-block;background:transparent}
       .sf-fallback-symbol{width:11px;height:11px;border:2px solid #f59e0b;border-radius:50%;display:inline-block;background:transparent}
       .sf-modal{position:fixed;inset:0;background:var(--sf-overlay);z-index:5000;display:none;align-items:center;justify-content:center;padding:24px}
       .sf-modal.visible{display:flex}
