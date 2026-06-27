@@ -2,7 +2,7 @@
   "id": "streamflow-forecast",
   "name": "LSTM Global Streamflow Forecast",
   "version": "0.1.0",
-  "assetVersion": "current-fallback-coverage-2026-06-22",
+  "assetVersion": "current-fallback-coverage-2026-06-26",
   "description": "Global 1-7 day probabilistic streamflow forecast preview from the current primary two-checkpoint GFS state-forecaster ensemble with three-model fallback coverage, with recent supervised validation where daily observations are available.",
   "author": "Spatial Research Team",
   "icon": "activity",
