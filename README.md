@@ -41,6 +41,9 @@ public/
     module.json
     index.js
     data/dashboard-data-state-current.json
+    api/latest.json
+    api/basins.json
+    api/lead-1.json ... api/lead-7.json
 ```
 
 ## Current Data
@@ -60,6 +63,20 @@ asset. Regenerate it from the latest fallback coverage CSV with:
 ```powershell
 python scripts\build_lstm_global_fallback_dashboard.py --update-manifests
 ```
+
+The same command also exports a small static API:
+
+```text
+https://grups666.github.io/LSTM-Global/modules/streamflow-forecast/api/latest.json
+https://grups666.github.io/LSTM-Global/modules/streamflow-forecast/api/basins.json
+https://grups666.github.io/LSTM-Global/modules/streamflow-forecast/api/lead-1.json
+...
+https://grups666.github.io/LSTM-Global/modules/streamflow-forecast/api/lead-7.json
+```
+
+`latest.json` contains issue date, row counts, source counts, and file links.
+The lead files contain P05/P50/P95 forecasts plus row source and
+potential-effectiveness annotations for that lead.
 
 ## Local Preview
 
