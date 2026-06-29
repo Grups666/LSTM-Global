@@ -135,9 +135,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         ctx.strokeStyle = fallbackForecast ? "#f59e0b" : targetedAdapter ? "#a855f7" : selected ? "#0f172a" : hovered ? "#1d4ed8" : "rgba(15,23,42,0.34)";
         ctx.lineWidth = fallbackForecast || targetedAdapter ? (selected || hovered ? 2.4 : 1.6) : selected ? 2.2 : hovered ? 1.8 : 0.7;
 
-        if (basin.status === "prediction_only") {
-          this.drawTriangle(ctx, x, y, radius + 0.8);
-        } else if (basin.status === "supervised_label_available") {
+        if (basin.status === "supervised_label_available") {
           this.drawDiamond(ctx, x, y, radius + 1.0);
         } else {
           ctx.beginPath();
@@ -202,10 +200,10 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-lead-row">${this.renderLeadButtons()}</div>
         <div class="sf-card-grid">
           ${this.metricCard("Basins", this.formatInt(meta.basinCount || this.basins.length))}
-          ${this.metricCard("Fine-tuned", this.formatInt(meta.fineTunedValidatedBasinCount ?? meta.recentValidatedBasinCount))}
-          ${this.metricCard("Latest run", this.formatInt(meta.latestStateForecastBasinCount))}
-          ${this.metricCard("Fallback rows", this.formatInt(sourceCounts.three_model || sourceCounts.fallback || 0))}
-          ${this.metricCard("Prediction only", this.formatInt(meta.predictionOnlyBasinCount))}
+          ${this.metricCard("Mapped", this.formatInt(meta.mappedBasinCount))}
+          ${this.metricCard("Forecast rows", this.formatInt(meta.rowCount))}
+          ${this.metricCard("Max lead", this.formatInt(meta.maxLead))}
+          ${this.metricCard("Streamflow input", meta.streamflowInputUsed ? "Yes" : "No")}
         </div>
         <div class="sf-meta-line">
           <span>${this.escape(meta.model || "Forecast model")}</span>
@@ -235,8 +233,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Latest P50", this.formatFlow(latest?.p50))}
           ${this.metricCard("P05-P95", `${this.formatFlow(latest?.p05)} - ${this.formatFlow(latest?.p95)}`)}
           ${this.metricCard("Forecast source", this.forecastSourceLabel(latest))}
-          ${this.metricCard("Effective status", this.effectivenessLabel(basin))}
-          ${this.metricCard("Best route", this.bestRouteLabel(basin))}
+          ${this.metricCard("Input mode", "forcing only")}
+          ${this.metricCard("Product masks", this.formatInt(latest?.missingProductCount))}
         </div>
         <div class="sf-meta-line">
           <span>${this.escape(basin.country || "unknown")}</span>
@@ -358,23 +356,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   statusBanner(basin) {
-    const effect = this.effectivenessLabel(basin);
-    const label = basin.effectivenessStatus && basin.effectivenessStatus !== "unknown"
-      ? effect
-      : basin.status === "fine_tuned_validated"
-      ? "Fine-tuned validation"
-      : basin.status === "supervised_label_available"
-        ? "Supervised label only"
-        : "Prediction only";
-    const cls = basin.effectivenessStatus === "adapter_candidate"
-      ? "adapter"
-      : basin.potentialEffective
-        ? "validated"
-        : basin.status === "fine_tuned_validated"
-      ? "validated"
-      : basin.status === "supervised_label_available"
-        ? "label"
-        : "prediction";
+    const label = "OpenHydroNet forecast";
+    const cls = "prediction";
     return `
       <div class="sf-status ${cls}">
         <span>${this.escape(label)}</span>
@@ -462,7 +445,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-legend">
           <div class="sf-gradient"></div>
           <div class="sf-legend-ticks"><span>0 or below</span><span>0.4</span><span>0.8+</span></div>
-          <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>Fine-tuned <span class="sf-diamond-symbol"></span>Label only <span class="sf-triangle-symbol"></span>Prediction only <span class="sf-adapter-symbol"></span>Adapter candidate <span class="sf-fallback-symbol"></span>Fallback forecast</div>
+          <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>OpenHydroNet basin forecast <span class="sf-fallback-symbol"></span>Unavailable products are masked</div>
         </div>
       `
     });
