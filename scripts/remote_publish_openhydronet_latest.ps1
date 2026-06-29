@@ -122,7 +122,7 @@ Write-Log "build_history_api"
   --output-dir (Join-Path $ApiDir "history") `
   --window-days $HistoryDays `
   --max-lead $LatestJson.maxLead `
-  --shard-size 250
+  --shard-size 50
 if ($LASTEXITCODE -ne 0) { throw "history API builder failed" }
 
 Invoke-Git -C $PagesRepo config user.name "openhydronet-bot"

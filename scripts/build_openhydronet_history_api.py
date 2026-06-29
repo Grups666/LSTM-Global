@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--window-days", type=int, default=30)
     parser.add_argument("--max-lead", type=int, default=7)
-    parser.add_argument("--shard-size", type=int, default=250)
+    parser.add_argument("--shard-size", type=int, default=50)
     return parser.parse_args()
 
 
