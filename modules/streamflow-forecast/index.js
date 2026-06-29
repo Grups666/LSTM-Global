@@ -23,7 +23,12 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.historyIndex = null;
     this.historyIndexPromise = null;
     this.historyShardCache = new Map();
+    this.historyShardPromises = new Map();
     this.historyByBasin = new Map();
+    this.historyLoadingBasins = new Set();
+    this.historyFailedBasins = new Set();
+    this.historyRefreshRequests = new Map();
+    this.historyVersionToken = null;
     this.handleFeatureClick = (payload) => {
       if (payload.layer?.id !== this.layerId || payload.layer?.moduleId !== this.manifest.id) return;
       this.selected = payload.feature;
@@ -60,6 +65,18 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   setDataPayload(data) {
     this.data = data;
+    const nextHistoryVersion = this.data?.meta?.latestIssueDate || this.data?.meta?.generatedAt || "current";
+    if (this.historyVersionToken && this.historyVersionToken !== nextHistoryVersion) {
+      this.historyIndex = null;
+      this.historyIndexPromise = null;
+      this.historyShardCache.clear();
+      this.historyShardPromises.clear();
+      this.historyByBasin.clear();
+      this.historyLoadingBasins.clear();
+      this.historyFailedBasins.clear();
+      this.historyRefreshRequests.clear();
+    }
+    this.historyVersionToken = nextHistoryVersion;
     this.basins = (this.data.basins || [])
       .filter((basin) => Number.isFinite(Number(basin.lon)) && Number.isFinite(Number(basin.lat)))
       .map((basin) => ({
@@ -88,10 +105,16 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     return this.basePath + path.replace(/^\.\//, "");
   }
 
-  async fetchJson(url) {
-    const response = await fetch(url);
+  async fetchJson(url, options = {}) {
+    const response = await fetch(url, options);
     if (!response.ok) throw new Error(`Failed to load ${url}: ${response.status}`);
     return response.json();
+  }
+
+  historyResolve(path) {
+    const url = this.resolve(path);
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}v=${encodeURIComponent(this.historyVersionToken || "current")}`;
   }
 
   addLayer() {
@@ -222,8 +245,10 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   showInspector(basin) {
+    this.requestHistoryForBasin(basin, { refreshInspector: true, prefetchNeighbors: true });
     const metrics = this.metricsForLead(basin);
     const latest = this.latestForLead(basin);
+    const historyState = this.historyState(basin.id);
     const content = `
       <div class="sf-basin-panel">
         ${this.renderModeButtons()}
@@ -245,8 +270,9 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           <span>${this.escape(basin.station_id || basin.id)}</span>
           <span>Valid ${this.escape(this.validDate(latest, this.selectedLead))}</span>
         </div>
-        <div class="sf-chart-preview" data-sf-open-chart="${this.escape(basin.id)}" role="button" tabindex="0" aria-label="Open basin hydrograph">
+        <div class="sf-chart-preview ${historyState.className}" data-sf-open-chart="${this.escape(basin.id)}" role="button" tabindex="0" aria-label="Open basin hydrograph">
           ${this.renderChartSvg(basin, this.selectedLead, 300, 160, { interactive: false, legend: false })}
+          ${historyState.overlay}
         </div>
       </div>
     `;
@@ -460,13 +486,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.ensureChartModal();
     this.renderChartModal(basin);
     this.chartModal.classList.add("visible");
-    this.loadHistoryForBasin(basin.id).then((loaded) => {
-      if (loaded && this.activeModalBasin?.id === basin.id) {
-        this.renderChartModal(this.activeModalBasin);
-      }
-    }).catch((error) => {
-      console.warn("OpenHydroNet history unavailable", error);
-    });
+    this.requestHistoryForBasin(basin, { refreshModal: true, prefetchNeighbors: true });
   }
 
   ensureChartModal() {
@@ -480,7 +500,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
             <p class="sf-kicker">Basin hydrograph</p>
             <h2 class="sf-modal-title"></h2>
           </div>
-          <button class="sf-modal-close" type="button" aria-label="Close">Close</button>
+          <button class="sf-modal-close" type="button" aria-label="Close"><span aria-hidden="true"></span></button>
         </div>
         <div class="sf-modal-body"></div>
       </div>
@@ -495,11 +515,15 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   renderChartModal(basin) {
     if (!this.chartModal) return;
+    const historyState = this.historyState(basin.id);
     this.chartModal.querySelector(".sf-modal-title").textContent = this.basinTitle(basin);
     this.chartModal.querySelector(".sf-modal-body").innerHTML = `
       <div class="sf-lead-row">${this.renderLeadButtons()}</div>
-      <div class="sf-modal-meta">${this.escape(basin.id)} / ${this.escape(basin.country || "unknown")} / lead ${this.selectedLead} / ${this.historyByBasin.has(basin.id) ? "rolling 30-day history" : "latest issue"}</div>
-      ${this.renderChartSvg(basin, this.selectedLead, 760, 360, { interactive: true, legend: true })}
+      <div class="sf-modal-meta">${this.escape(basin.id)} / ${this.escape(basin.country || "unknown")} / lead ${this.selectedLead} / ${historyState.label}</div>
+      <div class="sf-modal-chart-wrap ${historyState.className}">
+        ${this.renderChartSvg(basin, this.selectedLead, 760, 360, { interactive: true, legend: true })}
+        ${historyState.overlay}
+      </div>
     `;
     this.bindLeadButtons(basin);
     this.bindChartInteractions(this.chartModal);
@@ -700,7 +724,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   async ensureHistoryIndex() {
     if (this.historyIndex) return this.historyIndex;
     if (!this.historyIndexPromise) {
-      this.historyIndexPromise = this.fetchJson(this.resolve("./api/history/index.json"))
+      this.historyIndexPromise = this.fetchJson(this.historyResolve("./api/history/index.json"))
         .then((payload) => {
           this.historyIndex = payload;
           return payload;
@@ -709,20 +733,100 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     return this.historyIndexPromise;
   }
 
+  historyState(basinId) {
+    if (this.historyByBasin.has(basinId)) {
+      return { className: "is-history-ready", label: "rolling 30-day history", overlay: "" };
+    }
+    if (this.historyLoadingBasins.has(basinId)) {
+      return {
+        className: "is-history-loading",
+        label: "loading rolling 30-day history",
+        overlay: `<div class="sf-history-overlay" aria-live="polite">Loading 30-day curve</div>`
+      };
+    }
+    if (this.historyFailedBasins.has(basinId)) {
+      return { className: "is-history-failed", label: "latest issue", overlay: "" };
+    }
+    return { className: "is-history-pending", label: "latest issue", overlay: "" };
+  }
+
+  requestHistoryForBasin(basin, options = {}) {
+    if (!basin?.id || this.historyByBasin.has(basin.id) || this.historyFailedBasins.has(basin.id)) return;
+    const basinId = basin.id;
+    const existing = this.historyRefreshRequests.get(basinId) || {};
+    this.historyRefreshRequests.set(basinId, {
+      refreshInspector: Boolean(existing.refreshInspector || options.refreshInspector),
+      refreshModal: Boolean(existing.refreshModal || options.refreshModal),
+      prefetchNeighbors: Boolean(existing.prefetchNeighbors || options.prefetchNeighbors)
+    });
+    if (this.historyLoadingBasins.has(basinId)) return;
+    this.historyLoadingBasins.add(basinId);
+    this.loadHistoryForBasin(basinId)
+      .then((loaded) => {
+        if (!loaded) this.historyFailedBasins.add(basinId);
+        const refreshOptions = this.historyRefreshRequests.get(basinId) || {};
+        if (loaded && refreshOptions.prefetchNeighbors) this.prefetchNeighborHistoryShards(basinId);
+      })
+      .catch((error) => {
+        this.historyFailedBasins.add(basinId);
+        console.warn("OpenHydroNet history unavailable", error);
+      })
+      .finally(() => {
+        const refreshOptions = this.historyRefreshRequests.get(basinId) || {};
+        this.historyRefreshRequests.delete(basinId);
+        this.historyLoadingBasins.delete(basinId);
+        if (refreshOptions.refreshInspector && this.selected?.id === basinId) this.showInspector(this.selected);
+        if (refreshOptions.refreshModal && this.activeModalBasin?.id === basinId) this.renderChartModal(this.activeModalBasin);
+      });
+  }
+
   async loadHistoryForBasin(basinId) {
     if (this.historyByBasin.has(basinId)) return true;
     const index = await this.ensureHistoryIndex();
     const shardFile = index.basinShard?.[basinId];
     if (!shardFile) return false;
-    let shard = this.historyShardCache.get(shardFile);
-    if (!shard) {
-      shard = await this.fetchJson(this.resolve(`./api/history/${shardFile}`));
-      this.historyShardCache.set(shardFile, shard);
-      for (const [id, leads] of Object.entries(shard.basins || {})) {
-        this.historyByBasin.set(id, this.convertHistoryLeads(leads, shard.issueDates || []));
-      }
-    }
+    await this.loadHistoryShard(shardFile);
     return this.historyByBasin.has(basinId);
+  }
+
+  async loadHistoryShard(shardFile) {
+    if (this.historyShardCache.has(shardFile)) return this.historyShardCache.get(shardFile);
+    if (!this.historyShardPromises.has(shardFile)) {
+      const promise = this.fetchJson(this.historyResolve(`./api/history/${shardFile}`))
+        .then((shard) => {
+          this.historyShardCache.set(shardFile, shard);
+          for (const [id, leads] of Object.entries(shard.basins || {})) {
+            this.historyByBasin.set(id, this.convertHistoryLeads(leads, shard.issueDates || []));
+          }
+          return shard;
+        })
+        .finally(() => {
+          this.historyShardPromises.delete(shardFile);
+        });
+      this.historyShardPromises.set(shardFile, promise);
+    }
+    return this.historyShardPromises.get(shardFile);
+  }
+
+  async prefetchNeighborHistoryShards(basinId) {
+    try {
+      const index = await this.ensureHistoryIndex();
+      const shardFile = index.basinShard?.[basinId];
+      const shardFiles = Array.isArray(index.shardFiles) ? index.shardFiles : [];
+      const shardIndex = shardFiles.indexOf(shardFile);
+      if (shardIndex < 0) return;
+      const neighbors = [shardFiles[shardIndex - 1], shardFiles[shardIndex + 1]].filter(Boolean);
+      const schedule = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 350));
+      schedule(() => {
+        neighbors.forEach((file) => {
+          if (!this.historyShardCache.has(file) && !this.historyShardPromises.has(file)) {
+            this.loadHistoryShard(file).catch(() => {});
+          }
+        });
+      });
+    } catch {
+      // Best-effort prefetch only.
+    }
   }
 
   convertHistoryLeads(leads, issueDates) {
@@ -813,8 +917,9 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       body.theme-dark .sf-status.validated{background:rgba(6,95,70,.24);color:#a7f3d0;border-color:rgba(16,185,129,.48)}
       body.theme-dark .sf-status.adapter{background:rgba(88,28,135,.26);color:#e9d5ff;border-color:rgba(192,132,252,.45)}
       body.theme-dark .sf-status.label{background:rgba(29,78,216,.22);color:#bfdbfe;border-color:rgba(96,165,250,.45)}
-      .sf-chart-preview{cursor:pointer;border:1px solid transparent;border-radius:8px;padding:4px;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,transform .16s ease}
+      .sf-chart-preview{position:relative;cursor:pointer;border:1px solid transparent;border-radius:8px;padding:4px;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,transform .16s ease}
       .sf-chart-preview:hover,.sf-chart-preview:focus-visible{border-color:var(--sf-focus);background:var(--sf-focus-soft);box-shadow:0 0 0 2px var(--sf-focus-soft),0 12px 28px rgba(15,23,42,.16);transform:translateY(-1px);outline:0}
+      .sf-chart-preview.is-history-loading{border-color:var(--sf-focus-soft);background:var(--sf-surface-soft)}
       .sf-chart-shell{position:relative}
       .sf-chart{width:100%;height:auto;display:block;border:1px solid var(--sf-border);border-radius:8px}
       .sf-chart-bg{fill:var(--sf-chart-bg)}
@@ -842,6 +947,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-legend-obs{color:var(--sf-obs)}
       .sf-empty-chart{height:138px;display:grid;place-items:center;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:8px;text-align:center;color:var(--sf-muted)}
       .sf-empty-chart div{font-size:24px;font-weight:800;color:var(--sf-text)}
+      .sf-history-overlay{position:absolute;right:10px;top:10px;z-index:2;background:var(--sf-readout-bg);border:1px solid var(--sf-border);border-radius:6px;padding:4px 7px;color:var(--sf-muted);font-size:11px;font-weight:800;box-shadow:0 8px 20px rgba(15,23,42,.12);pointer-events:none}
       .sf-legend{font-size:11px;color:var(--sf-muted,#475569)}
       body.theme-dark .sf-legend{color:#94a3b8}
       .sf-gradient{height:9px;border-radius:999px;background:linear-gradient(90deg,#7c3aed,#2563eb,#0ea5e9,#10b981,#f59e0b);margin:6px 0}
@@ -858,7 +964,12 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
       .sf-modal-title{margin:0;color:var(--sf-text);font-size:18px;line-height:1.25}
       .sf-kicker{margin:0 0 4px;color:var(--sf-muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px;font-weight:800}
-      .sf-modal-close{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:7px 10px;font-weight:800;cursor:pointer}
+      .sf-modal-chart-wrap{position:relative}
+      .sf-modal-close{display:inline-grid;place-items:center;flex:0 0 34px;width:34px;height:34px;aspect-ratio:1/1;border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:0;cursor:pointer}
+      .sf-modal-close span{position:relative;display:block;width:16px;height:16px;aspect-ratio:1/1}
+      .sf-modal-close span::before,.sf-modal-close span::after{content:"";position:absolute;left:50%;top:50%;width:16px;height:2px;background:currentColor;border-radius:999px;transform-origin:center}
+      .sf-modal-close span::before{transform:translate(-50%,-50%) rotate(45deg)}
+      .sf-modal-close span::after{transform:translate(-50%,-50%) rotate(-45deg)}
       .sf-modal-close:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
       .sf-modal-meta{display:inline-block;margin:0 0 12px;color:var(--sf-muted);font-size:12px}
     `;
