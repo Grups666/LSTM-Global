@@ -1,10 +1,12 @@
 # LSTM Global
 
-LSTM Global is a Tereon domain module for global 1-7 day probabilistic streamflow forecast visualization. It shows the latest GFS-driven forecast for all GRDC-Caravan basins and recent observed-discharge validation where daily streamflow labels are available.
+LSTM Global is a Tereon module and static API host for global 1-7 day
+probabilistic streamflow forecasts.
 
-The Foundation map and module loader live in:
-
-[https://github.com/Grups666/Tereon](https://github.com/Grups666/Tereon)
+The current deployment product is based on Google/FloodHub OpenHydroNet
+`mean_embedding_forecast_lstm`. Streamflow observations are not used as
+inference inputs. They are reserved for training targets, validation, and future
+retrospective scoring.
 
 ## Interactive Page
 
@@ -24,47 +26,34 @@ Repository URL import:
 https://github.com/Grups666/LSTM-Global
 ```
 
-The manifest points Tereon to:
+The module payload lives in:
 
 ```text
 public/modules/streamflow-forecast/
 ```
 
-## Module Contents
+## Current Data Product
+
+- Model family: `openhydronet_multimet`
+- Model name: `openhydronet_google_mean_embedding_forecast_lstm`
+- Latest bundled issue date: `2026-06-28`
+- Forecast horizon: lead 1-7 days
+- Basins: 15,955 matched OpenHydroNet/Caravan-nc basins
+- Rows per daily forecast: 111,685
+- Inference streamflow input: `false`
+- Current physical products: CPC hindcast plus ECMWF/HRES-like operational forecast group
+- Missing product masks: HRES hindcast, GraphCast, IMERG are explicitly marked unavailable/masked
+
+This repository is only the public API and visualization surface. The forecast
+runner lives on the remote operational server under:
 
 ```text
-public/
-  index.html
-  module.json
-  tereon-embed.html
-  modules/streamflow-forecast/
-    module.json
-    index.js
-    data/dashboard-data-state-current.json
-    api/latest.json
-    api/basins.json
-    api/lead-1.json ... api/lead-7.json
+D:\OpenHydroNet_FloodHub_Operational
 ```
 
-## Current Data
+## Static API
 
-- Latest forecast model: primary two-checkpoint GFS state-forecaster ensemble with conservative fallback coverage. Primary rows come from the scheduled two-checkpoint ensemble; missing basin/lead rows are filled from the three-model lead-wise ensemble only when the primary output has no row.
-- Forecast horizon: lead 1-7 days.
-- Forecast forcing: GFS operational forcing adapter, issue-date realistic lead 1-7 basin forcing.
-- Basins: 4057 GRDC-Caravan basins.
-- Fine-tuned/validated basins: 1528 USGS/ECCC/Australia matched basins.
-- Latest operational-style state forecast basins: 1263 basins for auto-selected issue date 2026-06-21. Of these, 783 basins come from the primary two-checkpoint ensemble and 480 additional basins are fallback coverage.
-- Prediction-only basins: 2003 basins without connected recent streamflow observations; 526 additional basins have labels but no held-out validated series in this dashboard split.
-- Historical validation curves currently use the three-model lead-wise ensemble matched predictions because the fallback layer is an issue-date coverage merge, not a full historical validation product. Held-out test median NSE by lead: L1 0.525, L2 0.290, L3 0.091, L4 -0.072, L5 -0.176, L6 -0.301, L7 -0.442. Median NSE/KGE/RMSE are the primary dashboard metrics because a few low-variance basins make mean NSE unstable.
-
-The module manifest points to the stable `dashboard-data-state-current.json`
-asset. Regenerate it from the latest fallback coverage CSV with:
-
-```powershell
-python scripts\build_lstm_global_fallback_dashboard.py --update-manifests
-```
-
-The same command also exports a small static API:
+GitHub Pages exposes the latest forecast files here:
 
 ```text
 https://grups666.github.io/LSTM-Global/modules/streamflow-forecast/api/latest.json
@@ -74,9 +63,39 @@ https://grups666.github.io/LSTM-Global/modules/streamflow-forecast/api/lead-1.js
 https://grups666.github.io/LSTM-Global/modules/streamflow-forecast/api/lead-7.json
 ```
 
-`latest.json` contains issue date, row counts, source counts, and file links.
-The lead files contain P05/P50/P95 forecasts plus row source and
-potential-effectiveness annotations for that lead.
+`latest.json` contains issue date, row counts, readiness metadata, product
+availability/missingness, and links to the per-lead files. Each `lead-N.json`
+contains one row per basin with P05/P50/P95/mean forecast values plus
+`streamflowInputUsed=false`, `inputProducts`, and `missingProducts`.
+
+## Daily Publication
+
+The intended production route does not go through a local workstation:
+
+1. The remote OpenHydroNet scheduled task builds the daily forecast.
+2. The remote publisher copies `outputs/api/latest/static/*.json` into a remote
+   checkout of this repository.
+3. The remote publisher rebuilds the Tereon dashboard JSON from the static API
+   and Caravan-nc shapefile centroids.
+4. The remote publisher commits and pushes to `main`.
+5. GitHub Pages deploys `public/`.
+
+Remote publish script:
+
+```powershell
+scripts\remote_publish_openhydronet_latest.ps1 -Push
+```
+
+The script expects a writable deploy key at:
+
+```text
+D:\OpenHydroNet_FloodHub_Operational\secrets\lstm_global_deploy_ed25519
+```
+
+If GitHub has not authorized that public key as a write-enabled deploy key for
+`Grups666/LSTM-Global`, the forecast still runs and the publisher still commits
+locally on the remote server, but `git push` fails with `Permission denied
+(publickey)`.
 
 ## Local Preview
 
