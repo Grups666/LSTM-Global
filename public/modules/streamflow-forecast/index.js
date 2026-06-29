@@ -20,6 +20,10 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.selectedLead = 1;
     this.chartModal = null;
     this.activeModalBasin = null;
+    this.historyIndex = null;
+    this.historyIndexPromise = null;
+    this.historyShardCache = new Map();
+    this.historyByBasin = new Map();
     this.handleFeatureClick = (payload) => {
       if (payload.layer?.id !== this.layerId || payload.layer?.moduleId !== this.manifest.id) return;
       this.selected = payload.feature;
@@ -456,6 +460,13 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.ensureChartModal();
     this.renderChartModal(basin);
     this.chartModal.classList.add("visible");
+    this.loadHistoryForBasin(basin.id).then((loaded) => {
+      if (loaded && this.activeModalBasin?.id === basin.id) {
+        this.renderChartModal(this.activeModalBasin);
+      }
+    }).catch((error) => {
+      console.warn("OpenHydroNet history unavailable", error);
+    });
   }
 
   ensureChartModal() {
@@ -487,7 +498,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.chartModal.querySelector(".sf-modal-title").textContent = this.basinTitle(basin);
     this.chartModal.querySelector(".sf-modal-body").innerHTML = `
       <div class="sf-lead-row">${this.renderLeadButtons()}</div>
-      <div class="sf-modal-meta">${this.escape(basin.id)} / ${this.escape(basin.country || "unknown")} / lead ${this.selectedLead}</div>
+      <div class="sf-modal-meta">${this.escape(basin.id)} / ${this.escape(basin.country || "unknown")} / lead ${this.selectedLead} / ${this.historyByBasin.has(basin.id) ? "rolling 30-day history" : "latest issue"}</div>
       ${this.renderChartSvg(basin, this.selectedLead, 760, 360, { interactive: true, legend: true })}
     `;
     this.bindLeadButtons(basin);
@@ -671,6 +682,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   seriesForLead(basin, lead) {
+    const history = this.historyByBasin.get(basin.id)?.[String(lead)];
+    if (history?.valid_date?.length) return history;
     const existing = this.data.series?.[basin.id]?.[String(lead)];
     if (existing?.valid_date?.length) return existing;
     const latest = basin.latestForecast?.[String(lead)];
@@ -682,6 +695,50 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       p95: [latest.p95],
       obs: [null]
     };
+  }
+
+  async ensureHistoryIndex() {
+    if (this.historyIndex) return this.historyIndex;
+    if (!this.historyIndexPromise) {
+      this.historyIndexPromise = this.fetchJson(this.resolve("./api/history/index.json"))
+        .then((payload) => {
+          this.historyIndex = payload;
+          return payload;
+        });
+    }
+    return this.historyIndexPromise;
+  }
+
+  async loadHistoryForBasin(basinId) {
+    if (this.historyByBasin.has(basinId)) return true;
+    const index = await this.ensureHistoryIndex();
+    const shardFile = index.basinShard?.[basinId];
+    if (!shardFile) return false;
+    let shard = this.historyShardCache.get(shardFile);
+    if (!shard) {
+      shard = await this.fetchJson(this.resolve(`./api/history/${shardFile}`));
+      this.historyShardCache.set(shardFile, shard);
+      for (const [id, leads] of Object.entries(shard.basins || {})) {
+        this.historyByBasin.set(id, this.convertHistoryLeads(leads, shard.issueDates || []));
+      }
+    }
+    return this.historyByBasin.has(basinId);
+  }
+
+  convertHistoryLeads(leads, issueDates) {
+    const converted = {};
+    for (const [lead, rows] of Object.entries(leads || {})) {
+      const leadNumber = Number(lead);
+      const validDates = issueDates.map((issueDate) => this.validDate({ issue_date: issueDate }, leadNumber));
+      converted[lead] = {
+        valid_date: validDates,
+        p05: rows.map((row) => Array.isArray(row) ? row[0] : null),
+        p50: rows.map((row) => Array.isArray(row) ? row[1] : null),
+        p95: rows.map((row) => Array.isArray(row) ? row[2] : null),
+        obs: rows.map(() => null)
+      };
+    }
+    return converted;
   }
 
   chartYDomain(basin) {

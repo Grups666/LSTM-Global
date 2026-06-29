@@ -9,6 +9,8 @@ param(
   [string]$SshExe = "C:\Program Files\Git\usr\bin\ssh.exe",
   [string]$DeployKey = "D:\OpenHydroNet_FloodHub_Operational\secrets\lstm_global_deploy_ed25519",
   [string]$PagesWorktree = "D:\LSTM-Global-gh-pages-publish",
+  [string]$HistoryRoot = "D:\OpenHydroNet_FloodHub_Operational\outputs\api\history",
+  [int]$HistoryDays = 30,
   [switch]$SkipPull,
   [switch]$Push
 )
@@ -84,6 +86,25 @@ if ($LatestJson.streamflowInputUsed -ne $false) {
   throw "Refusing to publish product with streamflowInputUsed=$($LatestJson.streamflowInputUsed)"
 }
 
+Write-Log "archive_history_static"
+$HistoryIssueDir = Join-Path $HistoryRoot $LatestJson.issueDate
+$HistoryStaticDir = Join-Path $HistoryIssueDir "static"
+New-Item -ItemType Directory -Force -Path $HistoryStaticDir | Out-Null
+Get-ChildItem -LiteralPath $ApiDir -Filter "*.json" | ForEach-Object {
+  Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $HistoryStaticDir $_.Name) -Force
+}
+
+$HistoryScript = Join-Path $PagesRepo "scripts\build_openhydronet_history_api.py"
+if (-not (Test-Path $HistoryScript)) { throw "History builder missing: $HistoryScript" }
+Write-Log "build_history_api"
+& $PythonExe $HistoryScript `
+  --history-root $HistoryRoot `
+  --output-dir (Join-Path $ApiDir "history") `
+  --window-days $HistoryDays `
+  --max-lead $LatestJson.maxLead `
+  --shard-size 250
+if ($LASTEXITCODE -ne 0) { throw "history API builder failed" }
+
 Invoke-Git -C $PagesRepo config user.name "openhydronet-bot"
 Invoke-Git -C $PagesRepo config user.email "openhydronet-bot@users.noreply.github.com"
 Invoke-Git -C $PagesRepo remote set-url origin $RemoteUrl
@@ -95,6 +116,7 @@ Invoke-Git -C $PagesRepo add `
   "public/modules/streamflow-forecast/module.json" `
   "README.md" `
   "scripts/build_openhydronet_dashboard.py" `
+  "scripts/build_openhydronet_history_api.py" `
   "scripts/remote_publish_openhydronet_latest.ps1"
 
 $changed = & $GitExe -C $PagesRepo status --porcelain
