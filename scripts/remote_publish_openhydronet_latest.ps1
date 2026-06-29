@@ -33,8 +33,28 @@ function Write-Log {
 
 function Invoke-Git {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-  & $GitExe @Args
-  if ($LASTEXITCODE -ne 0) {
+  function Quote-ProcessArg {
+    param([string]$Arg)
+    if ($Arg -match '[\s"]') {
+      return '"' + ($Arg -replace '\\(?=\\*")', '$&' -replace '"', '\"') + '"'
+    }
+    return $Arg
+  }
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $GitExe
+  $psi.Arguments = ($Args | ForEach-Object { Quote-ProcessArg $_ }) -join " "
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.UseShellExecute = $false
+  $p = New-Object System.Diagnostics.Process
+  $p.StartInfo = $psi
+  [void]$p.Start()
+  $stdout = $p.StandardOutput.ReadToEnd()
+  $stderr = $p.StandardError.ReadToEnd()
+  $p.WaitForExit()
+  if ($stdout) { Write-Output $stdout.TrimEnd() }
+  if ($stderr) { Write-Output $stderr.TrimEnd() }
+  if ($p.ExitCode -ne 0) {
     throw "git failed: $($Args -join ' ')"
   }
 }
