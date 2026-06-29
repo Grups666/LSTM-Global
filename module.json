@@ -1,0 +1,56 @@
+{
+  "id": "streamflow-forecast",
+  "name": "LSTM Global Streamflow Forecast",
+  "version": "0.1.0",
+  "assetVersion": "openhydronet-operational-2026-06-28",
+  "description": "Global 1-7 day probabilistic streamflow forecast preview from Google/FloodHub OpenHydroNet mean_embedding_forecast_lstm using operational MultiMet forcing masks. Streamflow is never used as an inference input.",
+  "author": "Spatial Research Team",
+  "icon": "activity",
+  "basePath": "https://grups666.github.io/LSTM-Global/",
+  "entry": "./modules/streamflow-forecast/index.js",
+  "className": "StreamflowForecastModule",
+  "importKind": "module-manifest",
+  "defaultLoad": false,
+  "layerId": "streamflow-forecast-basins",
+  "layerName": "Global Streamflow Forecast",
+  "datasets": [
+    {
+      "id": "streamflow-forecast-dashboard",
+      "file": "./modules/streamflow-forecast/data/dashboard-data-state-current.json"
+    },
+    {
+      "id": "streamflow-forecast-static-api",
+      "file": "./modules/streamflow-forecast/api/latest.json"
+    }
+  ],
+  "provides": {
+    "layers": [
+      {
+        "id": "streamflow-forecast-basins",
+        "name": "Global Streamflow Forecast",
+        "type": "vector",
+        "source": "module.basins",
+        "interactive": true
+      }
+    ],
+    "panels": [
+      {
+        "id": "streamflow-forecast-inspector",
+        "name": "Streamflow Forecast Inspector",
+        "position": "right",
+        "trigger": "feature:click",
+        "condition": {
+          "layer": "streamflow-forecast-basins",
+          "module": "streamflow-forecast"
+        }
+      }
+    ],
+    "dataProducts": [
+      {
+        "id": "openhydronet-operational-static-api",
+        "type": "operational-probabilistic-streamflow-forecast",
+        "description": "Lead-wise P05/P50/P95 streamflow forecast rows from the no-streamflow-input OpenHydroNet operational runner. Daily API files are published from the remote server."
+      }
+    ]
+  }
+}
