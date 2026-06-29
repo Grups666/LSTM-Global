@@ -137,6 +137,7 @@ Invoke-Git -C $PagesRepo add `
   "README.md" `
   "scripts/build_openhydronet_dashboard.py" `
   "scripts/build_openhydronet_history_api.py" `
+  "scripts/remote_backfill_openhydronet_history.ps1" `
   "scripts/remote_publish_openhydronet_latest.ps1"
 
 $changed = & $GitExe -C $PagesRepo status --porcelain

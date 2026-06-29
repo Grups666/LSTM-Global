@@ -42,6 +42,26 @@ function Copy-Latest-To-History {
   }
 }
 
+function Invoke-LoggedProcess {
+  param(
+    [string]$FilePath,
+    [string[]]$Arguments,
+    [string]$ProcessLog
+  )
+  $oldPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    & $FilePath @Arguments *>&1 |
+      Tee-Object -FilePath $ProcessLog |
+      Add-Content -Encoding UTF8 -Path $LogPath
+    $code = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $oldPreference
+  }
+  if ($null -eq $code) { $code = 0 }
+  return $code
+}
+
 if (-not (Test-Path $Runner)) { throw "Runner missing: $Runner" }
 if (-not (Test-Path $Publisher)) { throw "Publisher missing: $Publisher" }
 
@@ -68,11 +88,10 @@ foreach ($date in $dates) {
 
   $started = Get-Date
   Write-Log "RUN issue=$issueDate progress=$index/$($dates.Count)"
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Runner -ProjectRoot $OpenHydroNetRoot -IssueDate $issueDate *>&1 |
-    Tee-Object -FilePath (Join-Path $LogDir "issue_${issueDate}.log") |
-    Add-Content -Encoding UTF8 -Path $LogPath
-  $code = $LASTEXITCODE
-  if ($null -eq $code) { $code = 0 }
+  $code = Invoke-LoggedProcess `
+    -FilePath "powershell.exe" `
+    -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $Runner, "-ProjectRoot", $OpenHydroNetRoot, "-IssueDate", $issueDate) `
+    -ProcessLog (Join-Path $LogDir "issue_${issueDate}.log")
   if ($code -ne 0) { throw "Issue $issueDate failed with exit code $code" }
   Copy-Latest-To-History -IssueDateIso $issueIso
   $elapsed = [math]::Round(((Get-Date) - $started).TotalMinutes, 2)
@@ -88,10 +107,9 @@ $publishArgs = @(
   "-HistoryDays", "$HistoryDays"
 )
 if ($Push) { $publishArgs += "-Push" }
-& powershell.exe @publishArgs *>&1 |
-  Tee-Object -FilePath (Join-Path $LogDir "publish_final.log") |
-  Add-Content -Encoding UTF8 -Path $LogPath
-$publishCode = $LASTEXITCODE
-if ($null -eq $publishCode) { $publishCode = 0 }
+$publishCode = Invoke-LoggedProcess `
+  -FilePath "powershell.exe" `
+  -Arguments $publishArgs `
+  -ProcessLog (Join-Path $LogDir "publish_final.log")
 if ($publishCode -ne 0) { throw "Final publish failed with exit code $publishCode" }
 Write-Log "DONE backfill"
