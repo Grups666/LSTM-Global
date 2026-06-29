@@ -125,7 +125,7 @@ if ($Push) {
   Get-ChildItem -LiteralPath (Join-Path $PagesRepo "public") -Force | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $PagesWorktree -Recurse -Force
   }
-  Invoke-Git -C $PagesWorktree add -A
+  Invoke-Git -C $PagesWorktree add --all
   $pagesChanged = & $GitExe -C $PagesWorktree status --porcelain
   if ($pagesChanged) {
     Invoke-Git -C $PagesWorktree config user.name "openhydronet-bot"
