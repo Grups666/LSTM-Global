@@ -72,7 +72,6 @@ Write-Log "build_dashboard"
   --static-api-dir $ApiDir `
   --caravan-nc-dir $CaravanNcDir `
   --output-dashboard (Join-Path $DataDir "dashboard-data-state-current.json") `
-  --output-freshness (Join-Path $DataDir "dashboard-data-state-freshness-current.json") `
   --compact
 if ($LASTEXITCODE -ne 0) { throw "dashboard builder failed" }
 
@@ -90,7 +89,6 @@ Invoke-Git -C $PagesRepo remote set-url origin $RemoteUrl
 Invoke-Git -C $PagesRepo add `
   "public/modules/streamflow-forecast/api" `
   "public/modules/streamflow-forecast/data/dashboard-data-state-current.json" `
-  "public/modules/streamflow-forecast/data/dashboard-data-state-freshness-current.json" `
   "module.json" `
   "public/module.json" `
   "public/modules/streamflow-forecast/module.json" `

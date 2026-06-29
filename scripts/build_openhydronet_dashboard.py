@@ -188,7 +188,6 @@ def build_payload(static_api_dir: Path, caravan_nc_dir: Path | None, max_lead: i
     coords = load_basin_coords(caravan_nc_dir, wanted_ids)
 
     latest_by_basin: dict[str, dict[str, Any]] = defaultdict(dict)
-    series_by_basin: dict[str, dict[str, Any]] = defaultdict(dict)
     lead_summary = []
 
     for lead in range(1, max_lead + 1):
@@ -220,13 +219,6 @@ def build_payload(static_api_dir: Path, caravan_nc_dir: Path | None, max_lead: i
                 "streamflowInputUsed": row.get("streamflowInputUsed", False),
             }
             latest_by_basin[basin][str(lead)] = latest_item
-            series_by_basin[basin][str(lead)] = {
-                "valid_date": [row.get("validDate")],
-                "p05": [row.get("p05")],
-                "p50": [row.get("p50")],
-                "p95": [row.get("p95")],
-                "obs": [None],
-            }
 
     basin_rows = []
     for basin_id in basin_ids:
@@ -275,13 +267,10 @@ def build_payload(static_api_dir: Path, caravan_nc_dir: Path | None, max_lead: i
         "baseLeadSummary": lead_summary,
         "calibratorLeadMetrics": [],
         "basins": basin_rows,
-        "series": series_by_basin,
     }
     freshness = {
         "meta": {**meta, "freshnessMode": True},
         "leadSummary": lead_summary,
-        "basins": basin_rows,
-        "series": series_by_basin,
     }
     return dashboard, freshness
 

@@ -519,7 +519,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   renderChartSvg(basin, lead, width, height, options = {}) {
     const interactive = options.interactive === true;
     const showLegend = options.legend !== false;
-    const series = this.data.series?.[basin.id]?.[String(lead)];
+    const series = this.seriesForLead(basin, lead);
     if (!series || !Array.isArray(series.valid_date) || !series.valid_date.length) {
       const latest = basin.latestForecast?.[String(lead)];
       return `
@@ -611,7 +611,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const lead = Number(shell.dataset.sfLead || 1);
     const width = Number(shell.dataset.sfWidth || 0);
     const height = Number(shell.dataset.sfHeight || 0);
-    const series = basin ? this.data.series?.[basin.id]?.[String(lead)] : null;
+    const series = basin ? this.seriesForLead(basin, lead) : null;
     if (!svg || !basin || !series?.valid_date?.length || !width || !height) return;
 
     const rect = svg.getBoundingClientRect();
@@ -687,11 +687,24 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     return values;
   }
 
+  seriesForLead(basin, lead) {
+    const existing = this.data.series?.[basin.id]?.[String(lead)];
+    if (existing?.valid_date?.length) return existing;
+    const latest = basin.latestForecast?.[String(lead)];
+    if (!latest) return null;
+    return {
+      valid_date: [this.validDate(latest, lead)],
+      p05: [latest.p05],
+      p50: [latest.p50],
+      p95: [latest.p95],
+      obs: [null]
+    };
+  }
+
   chartYDomain(basin) {
-    const byLead = this.data.series?.[basin.id] || {};
     const values = [];
     for (let lead = 1; lead <= 7; lead += 1) {
-      values.push(...this.chartValues(byLead[String(lead)]));
+      values.push(...this.chartValues(this.seriesForLead(basin, lead)));
     }
     const max = values.length ? Math.max(...values) : 1;
     return { min: 0, max: Math.max(max, 1e-6) };

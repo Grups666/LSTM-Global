@@ -18,10 +18,6 @@
       "file": "./data/dashboard-data-state-current.json"
     },
     {
-      "id": "streamflow-forecast-dashboard-freshness",
-      "file": "./data/dashboard-data-state-freshness-current.json"
-    },
-    {
       "id": "streamflow-forecast-static-api",
       "file": "./api/latest.json"
     }
