@@ -8,6 +8,7 @@ param(
   [string]$GitExe = "C:\Program Files\Git\cmd\git.exe",
   [string]$SshExe = "C:\Program Files\Git\usr\bin\ssh.exe",
   [string]$DeployKey = "D:\OpenHydroNet_FloodHub_Operational\secrets\lstm_global_deploy_ed25519",
+  [string]$PagesWorktree = "D:\LSTM-Global-gh-pages-publish",
   [switch]$SkipPull,
   [switch]$Push
 )
@@ -110,6 +111,31 @@ if ($Push) {
   Write-Log "push_start"
   Invoke-Git -C $PagesRepo push origin $Branch
   Write-Log "push_done=True"
+
+  Write-Log "pages_branch_publish_start"
+  if (Test-Path -LiteralPath $PagesWorktree) {
+    & $GitExe -C $PagesRepo worktree remove --force $PagesWorktree 2>$null | Out-Null
+    if (Test-Path -LiteralPath $PagesWorktree) {
+      Remove-Item -LiteralPath $PagesWorktree -Recurse -Force
+    }
+  }
+  Invoke-Git -C $PagesRepo fetch origin gh-pages
+  Invoke-Git -C $PagesRepo worktree add -B gh-pages $PagesWorktree origin/gh-pages
+  Invoke-Git -C $PagesWorktree rm -r --ignore-unmatch .
+  Get-ChildItem -LiteralPath (Join-Path $PagesRepo "public") -Force | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination $PagesWorktree -Recurse -Force
+  }
+  Invoke-Git -C $PagesWorktree add -A
+  $pagesChanged = & $GitExe -C $PagesWorktree status --porcelain
+  if ($pagesChanged) {
+    Invoke-Git -C $PagesWorktree config user.name "openhydronet-bot"
+    Invoke-Git -C $PagesWorktree config user.email "openhydronet-bot@users.noreply.github.com"
+    Invoke-Git -C $PagesWorktree commit -m "Deploy OpenHydroNet forecast site"
+    Invoke-Git -C $PagesWorktree push origin gh-pages
+    Write-Log "pages_branch_publish_done=True"
+  } else {
+    Write-Log "pages_branch_publish_done=False no_changes"
+  }
 } else {
   Write-Log "push_skipped=True"
   if (Test-Path ($DeployKey + ".pub")) {
