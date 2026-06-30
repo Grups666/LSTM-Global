@@ -153,14 +153,12 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
         const selected = this.selected?.id === basin.id;
         const hovered = this.app.hoveredLayer?.id === this.layerId && this.app.hoveredFeatureId === basin.id;
-        const forecastSource = this.latestSourceForLead(basin);
-        const fallbackForecast = forecastSource && forecastSource !== "primary";
         const targetedAdapter = Boolean(basin.targetedAdapterCandidate);
         const radius = selected ? 6.8 : hovered ? 5.6 : 3.9;
         ctx.globalAlpha = selected ? 0.98 : basin.status === "prediction_only" ? 0.72 : 0.84;
         ctx.fillStyle = this.skillColor(this.metricValue(basin, "nse"));
-        ctx.strokeStyle = fallbackForecast ? "#f59e0b" : targetedAdapter ? "#a855f7" : selected ? "#0f172a" : hovered ? "#1d4ed8" : "rgba(15,23,42,0.34)";
-        ctx.lineWidth = fallbackForecast || targetedAdapter ? (selected || hovered ? 2.4 : 1.6) : selected ? 2.2 : hovered ? 1.8 : 0.7;
+        ctx.strokeStyle = targetedAdapter ? "#a855f7" : selected ? "#0f172a" : hovered ? "#1d4ed8" : "rgba(15,23,42,0.30)";
+        ctx.lineWidth = targetedAdapter ? (selected || hovered ? 2.4 : 1.5) : selected ? 2.2 : hovered ? 1.8 : 0.7;
 
         if (basin.status === "supervised_label_available") {
           this.drawDiamond(ctx, x, y, radius + 1.0);
@@ -475,7 +473,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-legend">
           <div class="sf-gradient"></div>
           <div class="sf-legend-ticks"><span>0 or below</span><span>0.4</span><span>0.8+</span></div>
-          <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>OpenHydroNet basin forecast <span class="sf-fallback-symbol"></span>Unavailable products are masked</div>
+          <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>OpenHydroNet basin forecast</div>
+          <div class="sf-legend-note">Missing input products are explicitly masked, not treated as observed values.</div>
         </div>
       `
     });
@@ -953,6 +952,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-gradient{height:9px;border-radius:999px;background:linear-gradient(90deg,#7c3aed,#2563eb,#0ea5e9,#10b981,#f59e0b);margin:6px 0}
       .sf-legend-ticks,.sf-symbol-row{display:flex;justify-content:space-between;gap:6px}
       .sf-symbol-row{align-items:center;margin-top:6px}
+      .sf-legend-note{margin-top:7px;line-height:1.35;color:var(--sf-muted,#64748b)}
       .sf-dot-symbol{width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block}
       .sf-diamond-symbol{width:8px;height:8px;background:#60a5fa;display:inline-block;transform:rotate(45deg)}
       .sf-triangle-symbol{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #94a3b8;display:inline-block}
