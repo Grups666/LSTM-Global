@@ -259,10 +259,11 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Pairs", this.formatInt(metrics?.n))}
           ${this.metricCard("Latest P50", this.formatFlow(latest?.p50))}
           ${this.metricCard("P05-P95", `${this.formatFlow(latest?.p05)} - ${this.formatFlow(latest?.p95)}`)}
-          ${this.metricCard("Forecast source", this.forecastSourceLabel(latest))}
+          ${this.metricCard("Primary input", "GFS forecast")}
           ${this.metricCard("Input mode", "forcing only")}
           ${this.metricCard("Product masks", this.formatInt(latest?.missingProductCount))}
         </div>
+        ${this.renderInputNote(latest)}
         <div class="sf-meta-line">
           <span>${this.escape(basin.country || "unknown")}</span>
           <span>${this.escape(basin.station_id || basin.id)}</span>
@@ -486,6 +487,19 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.renderChartModal(basin);
     this.chartModal.classList.add("visible");
     this.requestHistoryForBasin(basin, { refreshModal: true, prefetchNeighbors: true });
+  }
+
+  renderInputNote(latest) {
+    const missing = Number(latest?.missingProductCount);
+    const missingText = Number.isFinite(missing) && missing > 0
+      ? `${missing} unavailable product groups are marked by masks.`
+      : "All configured product masks are clear for this row.";
+    return `
+      <div class="sf-input-note">
+        <strong>Input</strong>
+        <span>Forecasts use GFS 1-7 day meteorological forcing plus static basin attributes. Streamflow observations are not used as inference input. ${this.escape(missingText)}</span>
+      </div>
+    `;
   }
 
   ensureChartModal() {
@@ -903,6 +917,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-card{background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:9px}
       .sf-card-value{font-size:16px;font-weight:800;color:var(--sf-text);line-height:1.2;overflow-wrap:anywhere}
       .sf-card-label{font-size:11px;color:var(--sf-muted);margin-top:3px}
+      .sf-input-note{display:grid;gap:3px;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:9px 10px;margin:0 0 12px;color:var(--sf-muted);font-size:11px;line-height:1.38}
+      .sf-input-note strong{color:var(--sf-text);font-size:12px}
       .sf-meta-line{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 14px;color:var(--sf-muted);font-size:11px}
       .sf-meta-line span,.sf-modal-meta{background:var(--sf-surface-chip);border:1px solid var(--sf-border);border-radius:999px;padding:4px 8px}
       .sf-table{width:100%;border-collapse:collapse;font-size:11px}
