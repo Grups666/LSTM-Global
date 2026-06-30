@@ -228,7 +228,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Mapped", this.formatInt(meta.mappedBasinCount))}
           ${this.metricCard("Forecast rows", this.formatInt(meta.rowCount))}
           ${this.metricCard("Max lead", this.formatInt(meta.maxLead))}
-          ${this.metricCard("Streamflow input", meta.streamflowInputUsed ? "Yes" : "No")}
+          ${this.metricCard("Forecast input", "GFS")}
         </div>
         <div class="sf-meta-line">
           <span>${this.escape(meta.model || "Forecast model")}</span>
@@ -260,7 +260,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Latest P50", this.formatFlow(latest?.p50))}
           ${this.metricCard("P05-P95", `${this.formatFlow(latest?.p05)} - ${this.formatFlow(latest?.p95)}`)}
           ${this.metricCard("Primary input", "GFS forecast")}
-          ${this.metricCard("Input mode", "forcing only")}
+          ${this.metricCard("Input horizon", "1-7 days")}
           ${this.metricCard("Product masks", this.formatInt(latest?.missingProductCount))}
         </div>
         ${this.renderInputNote(latest)}
@@ -475,7 +475,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           <div class="sf-gradient"></div>
           <div class="sf-legend-ticks"><span>0 or below</span><span>0.4</span><span>0.8+</span></div>
           <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>OpenHydroNet basin forecast</div>
-          <div class="sf-legend-note">Missing input products are explicitly masked, not treated as observed values.</div>
+          <div class="sf-legend-note">Input product availability is encoded with masks for each forecast row.</div>
         </div>
       `
     });
@@ -492,12 +492,12 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   renderInputNote(latest) {
     const missing = Number(latest?.missingProductCount);
     const missingText = Number.isFinite(missing) && missing > 0
-      ? `${missing} unavailable product groups are marked by masks.`
-      : "All configured product masks are clear for this row.";
+      ? `${missing} optional product groups are recorded in the availability mask.`
+      : "All configured product groups are available for this row.";
     return `
       <div class="sf-input-note">
         <strong>Input</strong>
-        <span>Forecasts use GFS 1-7 day meteorological forcing plus static basin attributes. Streamflow observations are not used as inference input. ${this.escape(missingText)}</span>
+        <span>Forecasts use GFS 1-7 day meteorological forcing and static basin attributes. ${this.escape(missingText)}</span>
       </div>
     `;
   }
