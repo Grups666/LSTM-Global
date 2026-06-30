@@ -134,6 +134,7 @@ Invoke-Git -C $PagesRepo add `
   "module.json" `
   "public/module.json" `
   "public/modules/streamflow-forecast/module.json" `
+  "public/modules/streamflow-forecast/index.js" `
   "README.md" `
   "scripts/build_openhydronet_dashboard.py" `
   "scripts/build_openhydronet_history_api.py" `
