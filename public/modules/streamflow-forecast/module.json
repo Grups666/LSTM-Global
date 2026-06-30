@@ -2,7 +2,7 @@
   "id": "streamflow-forecast",
   "name": "LSTM Global Streamflow Forecast",
   "version": "0.1.0",
-  "assetVersion": "openhydronet-operational-2026-06-30-legend-mask",
+  "assetVersion": "openhydronet-operational-2026-06-30-gfs-input-note",
   "description": "Global 1-7 day probabilistic streamflow forecast preview from Google/FloodHub OpenHydroNet mean_embedding_forecast_lstm using operational MultiMet forcing masks. Streamflow is never used as an inference input.",
   "author": "Spatial Research Team",
   "icon": "activity",
