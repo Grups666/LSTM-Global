@@ -2,8 +2,8 @@
   "id": "streamflow-forecast",
   "name": "LSTM Global Streamflow Forecast",
   "version": "0.1.0",
-  "assetVersion": "openhydronet-operational-2026-06-30-gfs-input-note",
-  "description": "Global 1-7 day probabilistic streamflow forecast preview from Google/FloodHub OpenHydroNet mean_embedding_forecast_lstm using operational MultiMet forcing masks. Streamflow is never used as an inference input.",
+  "assetVersion": "openhydronet-operational-2026-06-30-gfs-positive-input",
+  "description": "Global 1-7 day probabilistic streamflow forecast preview from Google/FloodHub OpenHydroNet mean_embedding_forecast_lstm using GFS forecast forcing, static basin attributes, and operational product availability masks.",
   "author": "Spatial Research Team",
   "icon": "activity",
   "basePath": "https://grups666.github.io/LSTM-Global/",
@@ -49,7 +49,7 @@
       {
         "id": "openhydronet-operational-static-api",
         "type": "operational-probabilistic-streamflow-forecast",
-        "description": "Lead-wise P05/P50/P95 streamflow forecast rows from the no-streamflow-input OpenHydroNet operational runner. Daily API files are published from the remote server."
+        "description": "Lead-wise P05/P50/P95 streamflow forecast rows from the OpenHydroNet operational runner. Daily API files are published from the remote server."
       }
     ]
   }

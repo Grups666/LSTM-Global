@@ -9,8 +9,6 @@ The source API is produced by the operational OpenHydroNet runner:
 
 This script optionally enriches basin ids with centroids from Caravan-nc
 shapefiles so the Tereon module can render clickable global basin points.
-Streamflow observations are not used here; this is only a forecast product
-publisher.
 """
 
 from __future__ import annotations

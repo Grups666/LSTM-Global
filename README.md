@@ -4,9 +4,8 @@ LSTM Global is a Tereon module and static API host for global 1-7 day
 probabilistic streamflow forecasts.
 
 The current deployment product is based on Google/FloodHub OpenHydroNet
-`mean_embedding_forecast_lstm`. Streamflow observations are not used as
-inference inputs. They are reserved for training targets, validation, and future
-retrospective scoring.
+`mean_embedding_forecast_lstm`, using GFS forecast forcing, static basin
+attributes, and operational product availability masks.
 
 ## Interactive Page
 
@@ -40,9 +39,9 @@ public/modules/streamflow-forecast/
 - Forecast horizon: lead 1-7 days
 - Basins: 15,955 matched OpenHydroNet/Caravan-nc basins
 - Rows per daily forecast: 111,685
-- Inference streamflow input: `false`
-- Current physical products: CPC hindcast plus ECMWF/HRES-like operational forecast group
-- Missing product masks: HRES hindcast, GraphCast, IMERG are explicitly marked unavailable/masked
+- Forecast input: GFS forecast forcing
+- Static input: basin attributes
+- Availability masks: enabled for configured product groups
 
 This repository is only the public API and visualization surface. The forecast
 runner lives on the remote operational server under:
@@ -66,7 +65,7 @@ https://grups666.github.io/LSTM-Global/modules/streamflow-forecast/api/lead-7.js
 `latest.json` contains issue date, row counts, readiness metadata, product
 availability/missingness, and links to the per-lead files. Each `lead-N.json`
 contains one row per basin with P05/P50/P95/mean forecast values plus
-`streamflowInputUsed=false`, `inputProducts`, and `missingProducts`.
+`inputProducts`, `missingProducts`, and product availability metadata.
 
 ## Daily Publication
 
