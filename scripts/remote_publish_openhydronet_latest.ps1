@@ -1,15 +1,15 @@
-param(
-  [string]$OpenHydroNetRoot = "D:\OpenHydroNet_FloodHub_Operational",
-  [string]$PagesRepo = "D:\LSTM-Global",
+﻿param(
+  [string]$OpenHydroNetRoot = "D:\SSH\OpenHydroNet_FloodHub_Operational",
+  [string]$PagesRepo = "D:\SSH\LSTM-Global",
   [string]$RemoteUrl = "git@github.com:Grups666/LSTM-Global.git",
   [string]$CloneUrl = "https://github.com/Grups666/LSTM-Global.git",
   [string]$Branch = "main",
-  [string]$PythonExe = "D:\conda_envs\hydro-openhydro-lite\python.exe",
+  [string]$PythonExe = "D:\SSH\conda_envs\hydro\python.exe",
   [string]$GitExe = "C:\Program Files\Git\cmd\git.exe",
   [string]$SshExe = "C:\Program Files\Git\usr\bin\ssh.exe",
-  [string]$DeployKey = "D:\OpenHydroNet_FloodHub_Operational\secrets\lstm_global_deploy_ed25519",
-  [string]$PagesWorktree = "D:\LSTM-Global-gh-pages-publish",
-  [string]$HistoryRoot = "D:\OpenHydroNet_FloodHub_Operational\outputs\api\history",
+  [string]$DeployKey = "D:\SSH\OpenHydroNet_FloodHub_Operational\secrets\lstm_global_deploy_ed25519",
+  [string]$PagesWorktree = "D:\SSH\LSTM-Global-gh-pages-publish",
+  [string]$HistoryRoot = "D:\SSH\OpenHydroNet_FloodHub_Operational\outputs\api\history",
   [int]$HistoryDays = 30,
   [switch]$SkipPull,
   [switch]$Push
@@ -63,6 +63,9 @@ if (-not (Test-Path $StaticApiDir)) { throw "Static API dir missing: $StaticApiD
 if (-not (Test-Path (Join-Path $StaticApiDir "latest.json"))) { throw "latest.json missing under $StaticApiDir" }
 if (-not (Test-Path $PythonExe)) { throw "Python not found: $PythonExe" }
 if (-not (Test-Path $GitExe)) { throw "Git not found: $GitExe" }
+if ($Push -and (Test-Path $DeployKey)) {
+  $env:GIT_SSH_COMMAND = "`"$SshExe`" -i `"$DeployKey`" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+}
 
 Write-Log "START openhydronet_publish static_api=$StaticApiDir repo=$PagesRepo push=$Push"
 
