@@ -50,6 +50,61 @@ def finite_number(value: Any, digits: int = 6) -> float | None:
     return round(number, digits)
 
 
+def correlation(xs: list[float], ys: list[float]) -> float | None:
+    if len(xs) < 2 or len(xs) != len(ys):
+        return None
+    mean_x = sum(xs) / len(xs)
+    mean_y = sum(ys) / len(ys)
+    var_x = sum((x - mean_x) ** 2 for x in xs)
+    var_y = sum((y - mean_y) ** 2 for y in ys)
+    if var_x <= 0.0 or var_y <= 0.0:
+        return None
+    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=False))
+    return cov / math.sqrt(var_x * var_y)
+
+
+def validation_metrics(rows: list[list[Any]]) -> dict[str, Any]:
+    obs: list[float] = []
+    pred: list[float] = []
+    abs_errors: list[float] = []
+    inside_count = 0
+    for row in rows:
+        p50 = row[3]
+        observed = row[5]
+        if p50 is None or observed is None:
+            continue
+        pred.append(float(p50))
+        obs.append(float(observed))
+        if row[6] is not None:
+            abs_errors.append(float(row[6]))
+        if row[7]:
+            inside_count += 1
+    n = len(obs)
+    if n < 2:
+        return {"n": n, "nse": None, "kge": None, "maeMmDay": None, "coverageP05P95": None}
+    mean_obs = sum(obs) / n
+    mean_pred = sum(pred) / n
+    denominator = sum((value - mean_obs) ** 2 for value in obs)
+    nse = None
+    if denominator > 0:
+        nse = 1.0 - sum((p - o) ** 2 for p, o in zip(pred, obs, strict=False)) / denominator
+    r = correlation(pred, obs)
+    std_obs = math.sqrt(sum((value - mean_obs) ** 2 for value in obs) / n)
+    std_pred = math.sqrt(sum((value - mean_pred) ** 2 for value in pred) / n)
+    alpha = std_pred / std_obs if std_obs > 0 else None
+    beta = mean_pred / mean_obs if mean_obs != 0 else None
+    kge = None
+    if r is not None and alpha is not None and beta is not None:
+        kge = 1.0 - math.sqrt((r - 1.0) ** 2 + (alpha - 1.0) ** 2 + (beta - 1.0) ** 2)
+    return {
+        "n": n,
+        "nse": finite_number(nse),
+        "kge": finite_number(kge),
+        "maeMmDay": finite_number(sum(abs_errors) / len(abs_errors)) if abs_errors else None,
+        "coverageP05P95": finite_number(inside_count / n),
+    }
+
+
 def main() -> None:
     args = parse_args()
     run_dir = args.validation_run_dir
@@ -96,8 +151,16 @@ def main() -> None:
     basin_rows: list[dict[str, Any]] = []
     for basin_id in sorted(strict_by_basin):
         audit = strict_by_basin[basin_id]
-        ae_values = basin_metric_acc[basin_id]["ae"]
-        inside_values = basin_metric_acc[basin_id]["inside"]
+        all_validation_rows = [
+            row
+            for lead_rows in val_by_basin.get(basin_id, {}).values()
+            for row in lead_rows
+        ]
+        overall_metrics = validation_metrics(all_validation_rows)
+        by_lead_metrics = {
+            lead: validation_metrics(rows)
+            for lead, rows in sorted(val_by_basin.get(basin_id, {}).items(), key=lambda item: int(item[0]))
+        }
         basin_rows.append(
             {
                 "id": basin_id,
@@ -106,9 +169,13 @@ def main() -> None:
                 "name": audit.get("gauge_name"),
                 "latestObsDate": audit.get("daily_latest_date"),
                 "obsCount": len(obs_by_basin.get(basin_id, [])),
-                "validationCount": sum(len(rows) for rows in val_by_basin.get(basin_id, {}).values()),
-                "maeMmDay": round(sum(ae_values) / len(ae_values), 6) if ae_values else None,
-                "coverageP05P95": round(sum(inside_values) / len(inside_values), 6) if inside_values else None,
+                "validationCount": len(all_validation_rows),
+                "metrics": overall_metrics,
+                "byLead": by_lead_metrics,
+                "maeMmDay": overall_metrics["maeMmDay"],
+                "coverageP05P95": overall_metrics["coverageP05P95"],
+                "nse": overall_metrics["nse"],
+                "kge": overall_metrics["kge"],
             }
         )
 

@@ -9,6 +9,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.manifest = manifest;
     this.basePath = manifest.basePath || `/modules/${manifest.id || "streamflow-forecast"}/`;
     this.layerId = manifest.layerId || manifest.provides?.layers?.[0]?.id || "streamflow-forecast-basins";
+    this.overviewLayerId = `${this.layerId}-validation-overview`;
     this.layerName = manifest.layerName || manifest.provides?.layers?.[0]?.name || "Global Streamflow Forecast";
     this.legendId = `${manifest.id || "streamflow-forecast"}-legend`;
     this.data = null;
@@ -30,6 +31,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.historyRefreshRequests = new Map();
     this.historyVersionToken = null;
     this.obsSummary = null;
+    this.obsBasinMeta = new Map();
     this.obsIndex = null;
     this.obsIndexPromise = null;
     this.obsShardCache = new Map();
@@ -38,6 +40,11 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.obsLoadingBasins = new Set();
     this.obsFailedBasins = new Set();
     this.obsRefreshRequests = new Map();
+    this.accuracyFilter = {
+      minNse: -Infinity,
+      lead: "all",
+      observedOnly: false
+    };
     this.handleFeatureClick = (payload) => {
       if (payload.layer?.id !== this.layerId || payload.layer?.moduleId !== this.manifest.id) return;
       this.selected = payload.feature;
@@ -65,6 +72,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     }
     try {
       this.obsSummary = await this.fetchJson(this.resolve("./api/observations/latest.json"));
+      const obsBasins = await this.fetchJson(this.resolve("./api/observations/basins.json"));
+      this.obsBasinMeta = new Map((obsBasins.basins || []).map((basin) => [String(basin.id), basin]));
     } catch (error) {
       console.warn("Observed streamflow validation API unavailable", error);
     }
@@ -104,6 +113,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   onUnload() {
     this.app.layerManager.removeLayer(this.layerId);
+    this.app.layerManager.removeLayer(this.overviewLayerId);
     this.app.unregisterLegend?.(this.legendId);
     Foundation.eventBus.off(Foundation.Events.FEATURE_CLICK, this.handleFeatureClick);
     this.closeChartModal();
@@ -111,7 +121,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   getLayerIds() {
-    return [this.layerId];
+    return [this.layerId, this.overviewLayerId];
   }
 
   resolve(path) {
@@ -147,6 +157,20 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       renderer: (ctx, _layer, viewport) => this.render(ctx, viewport),
       hitTest: (lon, lat, viewport) => this.hitTest(lon, lat, viewport)
     });
+    this.app.layerManager.addLayer({
+      id: this.overviewLayerId,
+      name: "Observed Validation Overview",
+      type: "vector",
+      visible: true,
+      interactive: false,
+      moduleId: this.manifest.id,
+      groupPath: ["forecast"],
+      metadata: {
+        runDate: this.obsSummary?.runDate,
+        strictMatchedRecentBasins: this.obsSummary?.strictMatchedRecentBasins
+      },
+      renderer: (ctx, _layer, viewport) => this.renderValidationOverview(ctx, viewport)
+    });
     this.app.updateLayerList?.();
   }
 
@@ -161,6 +185,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     for (let seg = firstSeg; seg <= lastSeg; seg++) {
       const lonOffset = seg * 360;
       for (const basin of this.basins) {
+        if (!this.passesAccuracyFilter(basin)) continue;
         const x = width / 2 + (basin.lon + lonOffset) * base + offsetX;
         const y = height / 2 - basin.lat * base + offsetY;
         if (x < -18 || x > width + 18 || y < -18 || y > height + 18) continue;
@@ -211,6 +236,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     let bestDistance = Infinity;
 
     for (const basin of this.basins) {
+      if (!this.passesAccuracyFilter(basin)) continue;
       const dx = this.lonDistance(normalizedLon, basin.lon);
       const dy = lat - basin.lat;
       const distance = Math.hypot(dx, dy);
@@ -239,6 +265,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       <div class="sf-overview">
         ${this.renderModeButtons()}
         <div class="sf-lead-row">${this.renderLeadButtons()}</div>
+        ${this.renderOverviewNote()}
+        ${this.renderAccuracyFilterControls()}
         <div class="sf-card-grid">
           ${this.metricCard("Basins", this.formatInt(meta.basinCount || this.basins.length))}
           ${this.metricCard("Mapped", this.formatInt(meta.mappedBasinCount))}
@@ -266,6 +294,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.app.showInspector?.("LSTM Global", content);
     this.bindModeButtons(null);
     this.bindLeadButtons(null);
+    this.bindAccuracyFilterControls();
   }
 
   showInspector(basin) {
@@ -330,6 +359,49 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       const active = lead === this.selectedLead ? "active" : "";
       return `<button class="sf-lead ${active}" type="button" data-sf-lead="${lead}">L${lead}</button>`;
     }).join("");
+  }
+
+  renderOverviewNote() {
+    const matched = this.formatInt(this.obsSummary?.strictMatchedRecentBasins);
+    const total = this.formatInt(this.obsSummary?.totalForecastBasins);
+    const range = this.obsSummary?.startDate && this.obsSummary?.endDate
+      ? `${this.obsSummary.startDate} to ${this.obsSummary.endDate}`
+      : "latest 30-day window";
+    return `
+      <div class="sf-overview-note">
+        <strong>Observed validation overview</strong>
+        <span>${matched} of ${total} forecast basins have strict public observed-streamflow matches. The validation layer uses the ${this.escape(range)} window and never feeds observations into inference.</span>
+      </div>
+    `;
+  }
+
+  renderAccuracyFilterControls() {
+    const thresholds = [
+      { label: "All", value: "-Infinity" },
+      { label: "NSE > 0", value: "0" },
+      { label: "NSE > 0.2", value: "0.2" },
+      { label: "NSE > 0.5", value: "0.5" }
+    ];
+    const count = this.filteredBasinCount();
+    const leadOptions = ["all", "1", "2", "3", "4", "5", "6", "7"].map((lead) => {
+      const selected = String(this.accuracyFilter.lead) === lead ? "selected" : "";
+      return `<option value="${lead}" ${selected}>${lead === "all" ? "All leads" : `Lead ${lead}`}</option>`;
+    }).join("");
+    return `
+      <div class="sf-filter-panel">
+        <div class="sf-filter-row">
+          <label class="sf-toggle"><input type="checkbox" data-sf-observed-only ${this.accuracyFilter.observedOnly ? "checked" : ""}> Strict obs only</label>
+          <label class="sf-select-label">Metric <select data-sf-filter-lead>${leadOptions}</select></label>
+        </div>
+        <div class="sf-filter-row">
+          ${thresholds.map((item) => {
+            const active = Number(item.value) === Number(this.accuracyFilter.minNse) ? "active" : "";
+            return `<button class="sf-filter ${active}" type="button" data-sf-min-nse="${item.value}">${this.escape(item.label)}</button>`;
+          }).join("")}
+        </div>
+        <div class="sf-filter-count">${this.formatInt(count)} basins visible under current accuracy filter</div>
+      </div>
+    `;
   }
 
   bindLeadButtons(basin) {
@@ -412,6 +484,58 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <tbody>${rows}</tbody>
       </table>
     `;
+  }
+
+  bindAccuracyFilterControls() {
+    document.querySelectorAll("[data-sf-min-nse]").forEach((button) => {
+      button.addEventListener("click", () => {
+        this.accuracyFilter.minNse = Number(button.dataset.sfMinNse);
+        this.showOverview();
+        this.app.draw?.();
+      });
+    });
+    document.querySelectorAll("[data-sf-filter-lead]").forEach((select) => {
+      select.addEventListener("change", () => {
+        this.accuracyFilter.lead = select.value || "all";
+        this.showOverview();
+        this.app.draw?.();
+      });
+    });
+    document.querySelectorAll("[data-sf-observed-only]").forEach((input) => {
+      input.addEventListener("change", () => {
+        this.accuracyFilter.observedOnly = Boolean(input.checked);
+        this.showOverview();
+        this.app.draw?.();
+      });
+    });
+  }
+
+  renderValidationOverview(ctx, viewport) {
+    if (!this.obsBasinMeta.size) return;
+    const base = (viewport.height / 180) * viewport.scale;
+    const { width, height, offsetX } = viewport;
+    const leftLon = (-width / 2 - offsetX) / base;
+    const rightLon = (width / 2 - offsetX) / base;
+    const firstSeg = Math.floor(leftLon / 360);
+    const lastSeg = Math.ceil(rightLon / 360);
+    ctx.save();
+    for (let seg = firstSeg; seg <= lastSeg; seg++) {
+      const lonOffset = seg * 360;
+      for (const basin of this.basins) {
+        if (!this.obsBasinMeta.has(basin.id) || !this.passesAccuracyFilter(basin)) continue;
+        const x = width / 2 + (basin.lon + lonOffset) * base + offsetX;
+        const y = height / 2 - basin.lat * base + viewport.offsetY;
+        if (x < -22 || x > width + 22 || y < -22 || y > height + 22) continue;
+        const nse = this.filterNseValue(basin.id);
+        ctx.beginPath();
+        ctx.arc(x, y, 7.4, 0, Math.PI * 2);
+        ctx.strokeStyle = this.skillColor(nse);
+        ctx.lineWidth = Number(nse) > 0.5 ? 2.8 : 1.4;
+        ctx.globalAlpha = Number(nse) > 0.5 ? 0.9 : 0.42;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   renderObservationLeadSummary(summary) {
@@ -531,6 +655,27 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   metricValue(basin, key) {
     const value = basin.metrics?.[String(this.selectedLead)]?.[key];
     return Number.isFinite(Number(value)) ? Number(value) : null;
+  }
+
+  filterNseValue(basinId) {
+    const meta = this.obsBasinMeta.get(String(basinId));
+    if (!meta) return NaN;
+    if (String(this.accuracyFilter.lead) === "all") return Number(meta.nse);
+    return Number(meta.byLead?.[String(this.accuracyFilter.lead)]?.nse);
+  }
+
+  passesAccuracyFilter(basin) {
+    if (!basin?.id) return false;
+    const hasObs = this.obsBasinMeta.has(basin.id);
+    if (this.accuracyFilter.observedOnly && !hasObs) return false;
+    const minNse = Number(this.accuracyFilter.minNse);
+    if (!Number.isFinite(minNse)) return true;
+    const nse = this.filterNseValue(basin.id);
+    return Number.isFinite(nse) && nse > minNse;
+  }
+
+  filteredBasinCount() {
+    return this.basins.reduce((count, basin) => count + (this.passesAccuracyFilter(basin) ? 1 : 0), 0);
   }
 
   skillColor(nse) {
@@ -1108,6 +1253,17 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-mode{border:1px solid var(--sf-border-strong);background:var(--sf-surface-muted);color:var(--sf-muted);border-radius:6px;padding:6px 10px;font-size:12px;font-weight:800;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,color .16s ease}
       .sf-mode:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
       .sf-mode.active{background:var(--sf-text);border-color:var(--sf-text);color:var(--sf-surface)}
+      .sf-overview-note{display:grid;gap:4px;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:10px;margin:0 0 12px;color:var(--sf-muted);font-size:12px;line-height:1.4}
+      .sf-overview-note strong{color:var(--sf-text);font-size:13px}
+      .sf-filter-panel{display:grid;gap:8px;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:10px;margin:0 0 14px}
+      .sf-filter-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+      .sf-filter{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:6px 9px;font-size:12px;font-weight:800;cursor:pointer}
+      .sf-filter:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
+      .sf-filter.active{background:var(--sf-button-active);border-color:var(--sf-button-active);color:var(--sf-button-active-text)}
+      .sf-toggle,.sf-select-label{display:inline-flex;align-items:center;gap:6px;color:var(--sf-text);font-size:12px;font-weight:750}
+      .sf-toggle input{width:15px;height:15px;accent-color:var(--sf-focus)}
+      .sf-select-label select{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:5px 8px;font-size:12px}
+      .sf-filter-count{color:var(--sf-muted);font-size:11px}
       .sf-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0 0 14px}
       .sf-card{background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:9px}
       .sf-card-value{font-size:16px;font-weight:800;color:var(--sf-text);line-height:1.2;overflow-wrap:anywhere}

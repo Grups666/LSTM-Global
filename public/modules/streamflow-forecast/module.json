@@ -30,6 +30,13 @@
         "type": "vector",
         "source": "module.basins",
         "interactive": true
+      },
+      {
+        "id": "streamflow-forecast-basins-validation-overview",
+        "name": "Observed Validation Overview",
+        "type": "vector",
+        "source": "module.observedValidationBasins",
+        "interactive": false
       }
     ],
     "panels": [
