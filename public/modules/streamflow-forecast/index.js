@@ -29,6 +29,15 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.historyFailedBasins = new Set();
     this.historyRefreshRequests = new Map();
     this.historyVersionToken = null;
+    this.obsSummary = null;
+    this.obsIndex = null;
+    this.obsIndexPromise = null;
+    this.obsShardCache = new Map();
+    this.obsShardPromises = new Map();
+    this.obsByBasin = new Map();
+    this.obsLoadingBasins = new Set();
+    this.obsFailedBasins = new Set();
+    this.obsRefreshRequests = new Map();
     this.handleFeatureClick = (payload) => {
       if (payload.layer?.id !== this.layerId || payload.layer?.moduleId !== this.manifest.id) return;
       this.selected = payload.feature;
@@ -53,6 +62,11 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       } catch (error) {
         console.warn("Freshness-first streamflow dataset unavailable", error);
       }
+    }
+    try {
+      this.obsSummary = await this.fetchJson(this.resolve("./api/observations/latest.json"));
+    } catch (error) {
+      console.warn("Observed streamflow validation API unavailable", error);
     }
     this.setDataPayload(this.datasetsByMode.get(this.datasetMode).data);
     this.addLayer();
@@ -219,6 +233,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const meta = this.data.meta || {};
     const summary = Array.isArray(this.data.leadSummary) ? this.data.leadSummary : [];
     const sourceCounts = meta.latestForecastSourceCounts || {};
+    const obs = this.obsSummary || {};
+    const obsMetrics = obs.metrics || {};
     const content = `
       <div class="sf-overview">
         ${this.renderModeButtons()}
@@ -229,11 +245,21 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Forecast rows", this.formatInt(meta.rowCount))}
           ${this.metricCard("Max lead", this.formatInt(meta.maxLead))}
           ${this.metricCard("Forecast input", "GFS")}
+          ${this.metricCard("Obs basins", this.formatInt(obs.strictMatchedRecentBasins))}
+          ${this.metricCard("Obs rows", this.formatInt(obs.observationRows))}
+          ${this.metricCard("Validation rows", this.formatInt(obs.validationRows))}
+          ${this.metricCard("Obs NSE", this.formatMetric(obsMetrics.nse, 3))}
+          ${this.metricCard("Obs KGE", this.formatMetric(obsMetrics.kge, 3))}
+          ${this.metricCard("Obs MAE", this.formatFlow(obsMetrics.mae_mm_day))}
         </div>
         <div class="sf-meta-line">
           <span>${this.escape(meta.model || "Forecast model")}</span>
           <span>Issue ${this.escape(meta.latestIssueDate || "pending")}</span>
+          ${obs.runDate ? `<span>Obs run ${this.escape(obs.runDate)}</span>` : ""}
+          ${obs.startDate && obs.endDate ? `<span>Obs ${this.escape(obs.startDate)} to ${this.escape(obs.endDate)}</span>` : ""}
+          ${obs.sourceCounts ? `<span>Obs source ${this.escape(Object.keys(obs.sourceCounts).join(", ") || "none")}</span>` : ""}
         </div>
+        ${this.renderObservationLeadSummary(obs.byLead || [])}
         ${this.renderLeadSummary(summary)}
       </div>
     `;
@@ -244,19 +270,22 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   showInspector(basin) {
     this.requestHistoryForBasin(basin, { refreshInspector: true, prefetchNeighbors: true });
+    this.requestObsForBasin(basin, { refreshInspector: true });
     const metrics = this.metricsForLead(basin);
     const latest = this.latestForLead(basin);
     const historyState = this.historyState(basin.id);
+    const obsState = this.obsState(basin.id);
+    const obsMetrics = this.obsMetricsForLead(basin, this.selectedLead);
     const content = `
       <div class="sf-basin-panel">
         ${this.renderModeButtons()}
         <div class="sf-lead-row">${this.renderLeadButtons()}</div>
         ${this.statusBanner(basin)}
         <div class="sf-card-grid">
-          ${this.metricCard("NSE", this.formatMetric(metrics?.nse, 3))}
-          ${this.metricCard("KGE", this.formatMetric(metrics?.kge, 3))}
-          ${this.metricCard("RMSE", this.formatMetric(metrics?.rmse, 3))}
-          ${this.metricCard("Pairs", this.formatInt(metrics?.n))}
+          ${this.metricCard("Obs NSE", this.formatMetric(obsMetrics?.nse, 3))}
+          ${this.metricCard("Obs KGE", this.formatMetric(obsMetrics?.kge, 3))}
+          ${this.metricCard("Obs MAE", this.formatFlow(obsMetrics?.mae))}
+          ${this.metricCard("Obs pairs", this.formatInt(obsMetrics?.n))}
           ${this.metricCard("Latest P50", this.formatFlow(latest?.p50))}
           ${this.metricCard("P05-P95", `${this.formatFlow(latest?.p05)} - ${this.formatFlow(latest?.p95)}`)}
           ${this.metricCard("Primary input", "GFS forecast")}
@@ -268,10 +297,11 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           <span>${this.escape(basin.country || "unknown")}</span>
           <span>${this.escape(basin.station_id || basin.id)}</span>
           <span>Valid ${this.escape(this.validDate(latest, this.selectedLead))}</span>
+          <span>${this.escape(obsState.label)}</span>
         </div>
         <div class="sf-chart-preview ${historyState.className}" data-sf-open-chart="${this.escape(basin.id)}" role="button" tabindex="0" aria-label="Open basin hydrograph">
           ${this.renderChartSvg(basin, this.selectedLead, 300, 160, { interactive: false, legend: false })}
-          ${historyState.overlay}
+          ${historyState.overlay || obsState.overlay}
         </div>
       </div>
     `;
@@ -384,9 +414,30 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     `;
   }
 
+  renderObservationLeadSummary(summary) {
+    if (!summary.length) return "";
+    const rows = summary.map((item) => `
+      <tr>
+        <td>L${this.escape(item.lead_time)}</td>
+        <td>${this.formatInt(item.n)}</td>
+        <td>${this.formatMetric(item.nse, 3)}</td>
+        <td>${this.formatMetric(item.kge, 3)}</td>
+        <td>${this.formatFlow(item.mae_mm_day)}</td>
+        <td>${this.formatMetric(Number(item.p05_p95_coverage) * 100, 1)}%</td>
+      </tr>
+    `).join("");
+    return `
+      <table class="sf-table sf-obs-table">
+        <thead><tr><th>Obs lead</th><th>Pairs</th><th>NSE</th><th>KGE</th><th>MAE</th><th>P05-P95</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
   statusBanner(basin) {
-    const label = "OpenHydroNet forecast";
-    const cls = "prediction";
+    const hasObs = this.obsByBasin.has(basin.id);
+    const label = hasObs ? "Strict observed streamflow match" : "OpenHydroNet forecast";
+    const cls = hasObs ? "validated" : "prediction";
     return `
       <div class="sf-status ${cls}">
         <span>${this.escape(label)}</span>
@@ -406,6 +457,40 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   metricsForLead(basin) {
     return basin.metrics?.[String(this.selectedLead)] || null;
+  }
+
+  obsMetricsForLead(basin, lead) {
+    const rows = this.obsByBasin.get(basin.id)?.validation?.[String(lead)] || [];
+    if (!rows.length) return null;
+    const obs = [];
+    const pred = [];
+    for (const row of rows) {
+      const observed = Number(row[5]);
+      const forecast = Number(row[3]);
+      if (Number.isFinite(observed) && Number.isFinite(forecast)) {
+        obs.push(observed);
+        pred.push(forecast);
+      }
+    }
+    if (!obs.length) return null;
+    const n = obs.length;
+    const meanObs = obs.reduce((sum, value) => sum + value, 0) / n;
+    const meanPred = pred.reduce((sum, value) => sum + value, 0) / n;
+    const errors = pred.map((value, index) => value - obs[index]);
+    const denominator = obs.reduce((sum, value) => sum + (value - meanObs) ** 2, 0);
+    const nse = denominator > 0 ? 1 - errors.reduce((sum, value) => sum + value ** 2, 0) / denominator : NaN;
+    const r = this.correlation(pred, obs);
+    const stdPred = this.stddev(pred);
+    const stdObs = this.stddev(obs);
+    const alpha = stdObs > 0 ? stdPred / stdObs : NaN;
+    const beta = meanObs !== 0 ? meanPred / meanObs : NaN;
+    const kge = [r, alpha, beta].every(Number.isFinite) ? 1 - Math.hypot(r - 1, alpha - 1, beta - 1) : NaN;
+    return {
+      n,
+      mae: errors.reduce((sum, value) => sum + Math.abs(value), 0) / n,
+      nse,
+      kge
+    };
   }
 
   latestForLead(basin) {
@@ -487,6 +572,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.renderChartModal(basin);
     this.chartModal.classList.add("visible");
     this.requestHistoryForBasin(basin, { refreshModal: true, prefetchNeighbors: true });
+    this.requestObsForBasin(basin, { refreshModal: true });
   }
 
   renderInputNote(latest) {
@@ -707,6 +793,23 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     return Number.isFinite(number) && number >= 0 ? number : NaN;
   }
 
+  correlation(xs, ys) {
+    if (xs.length < 2 || xs.length !== ys.length) return NaN;
+    const meanX = xs.reduce((sum, value) => sum + value, 0) / xs.length;
+    const meanY = ys.reduce((sum, value) => sum + value, 0) / ys.length;
+    const varX = xs.reduce((sum, value) => sum + (value - meanX) ** 2, 0);
+    const varY = ys.reduce((sum, value) => sum + (value - meanY) ** 2, 0);
+    if (varX <= 0 || varY <= 0) return NaN;
+    const cov = xs.reduce((sum, value, index) => sum + (value - meanX) * (ys[index] - meanY), 0);
+    return cov / Math.sqrt(varX * varY);
+  }
+
+  stddev(values) {
+    if (!values.length) return NaN;
+    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+    return Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length);
+  }
+
   chartValues(series) {
     const values = [];
     for (const key of ["obs", "p05", "p50", "p95"]) {
@@ -719,8 +822,24 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   seriesForLead(basin, lead) {
+    const obsRows = this.obsByBasin.get(basin.id)?.validation?.[String(lead)] || [];
+    const obsByDate = new Map(obsRows.map((row) => [row[1], row[5]]));
     const history = this.historyByBasin.get(basin.id)?.[String(lead)];
-    if (history?.valid_date?.length) return history;
+    if (history?.valid_date?.length) {
+      return {
+        ...history,
+        obs: history.valid_date.map((date) => obsByDate.has(date) ? obsByDate.get(date) : null)
+      };
+    }
+    if (obsRows.length) {
+      return {
+        valid_date: obsRows.map((row) => row[1]),
+        p05: obsRows.map((row) => row[2]),
+        p50: obsRows.map((row) => row[3]),
+        p95: obsRows.map((row) => row[4]),
+        obs: obsRows.map((row) => row[5])
+      };
+    }
     const existing = this.data.series?.[basin.id]?.[String(lead)];
     if (existing?.valid_date?.length) return existing;
     const latest = basin.latestForecast?.[String(lead)];
@@ -856,6 +975,82 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       };
     }
     return converted;
+  }
+
+  async ensureObsIndex() {
+    if (this.obsIndex) return this.obsIndex;
+    if (!this.obsIndexPromise) {
+      this.obsIndexPromise = this.fetchJson(this.historyResolve("./api/observations/index.json"))
+        .then((payload) => {
+          this.obsIndex = payload;
+          return payload;
+        });
+    }
+    return this.obsIndexPromise;
+  }
+
+  obsState(basinId) {
+    if (this.obsByBasin.has(basinId)) return { label: "obs loaded", overlay: "" };
+    if (this.obsLoadingBasins.has(basinId)) {
+      return { label: "loading obs", overlay: `<div class="sf-history-overlay" aria-live="polite">Loading observed streamflow</div>` };
+    }
+    if (this.obsFailedBasins.has(basinId)) return { label: "no strict obs match", overlay: "" };
+    return { label: "obs pending", overlay: "" };
+  }
+
+  requestObsForBasin(basin, options = {}) {
+    if (!basin?.id || this.obsByBasin.has(basin.id) || this.obsFailedBasins.has(basin.id)) return;
+    const basinId = basin.id;
+    const existing = this.obsRefreshRequests.get(basinId) || {};
+    this.obsRefreshRequests.set(basinId, {
+      refreshInspector: Boolean(existing.refreshInspector || options.refreshInspector),
+      refreshModal: Boolean(existing.refreshModal || options.refreshModal)
+    });
+    if (this.obsLoadingBasins.has(basinId)) return;
+    this.obsLoadingBasins.add(basinId);
+    this.loadObsForBasin(basinId)
+      .then((loaded) => {
+        if (!loaded) this.obsFailedBasins.add(basinId);
+      })
+      .catch((error) => {
+        this.obsFailedBasins.add(basinId);
+        console.warn("Observed streamflow shard unavailable", error);
+      })
+      .finally(() => {
+        const refreshOptions = this.obsRefreshRequests.get(basinId) || {};
+        this.obsRefreshRequests.delete(basinId);
+        this.obsLoadingBasins.delete(basinId);
+        if (refreshOptions.refreshInspector && this.selected?.id === basinId) this.showInspector(this.selected);
+        if (refreshOptions.refreshModal && this.activeModalBasin?.id === basinId) this.renderChartModal(this.activeModalBasin);
+      });
+  }
+
+  async loadObsForBasin(basinId) {
+    if (this.obsByBasin.has(basinId)) return true;
+    const index = await this.ensureObsIndex();
+    const shardFile = index.basinShard?.[basinId];
+    if (!shardFile) return false;
+    await this.loadObsShard(shardFile);
+    return this.obsByBasin.has(basinId);
+  }
+
+  async loadObsShard(shardFile) {
+    if (this.obsShardCache.has(shardFile)) return this.obsShardCache.get(shardFile);
+    if (!this.obsShardPromises.has(shardFile)) {
+      const promise = this.fetchJson(this.historyResolve(`./api/observations/${shardFile}`))
+        .then((shard) => {
+          this.obsShardCache.set(shardFile, shard);
+          for (const [id, payload] of Object.entries(shard.basins || {})) {
+            this.obsByBasin.set(id, payload);
+          }
+          return shard;
+        })
+        .finally(() => {
+          this.obsShardPromises.delete(shardFile);
+        });
+      this.obsShardPromises.set(shardFile, promise);
+    }
+    return this.obsShardPromises.get(shardFile);
   }
 
   chartYDomain(basin) {

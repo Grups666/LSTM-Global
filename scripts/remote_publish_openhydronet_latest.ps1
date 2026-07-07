@@ -10,6 +10,7 @@
   [string]$DeployKey = "D:\SSH\OpenHydroNet_FloodHub_Operational\secrets\lstm_global_deploy_ed25519",
   [string]$PagesWorktree = "D:\SSH\LSTM-Global-gh-pages-publish",
   [string]$HistoryRoot = "D:\SSH\OpenHydroNet_FloodHub_Operational\outputs\api\history",
+  [string]$ValidationRunDir = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\validation\public_streamflow_daily\latest",
   [int]$HistoryDays = 30,
   [switch]$SkipPull,
   [switch]$Push
@@ -128,6 +129,18 @@ Write-Log "build_history_api"
   --shard-size 50
 if ($LASTEXITCODE -ne 0) { throw "history API builder failed" }
 
+$ObservationScript = Join-Path $PagesRepo "scripts\build_streamflow_observation_api.py"
+if ((Test-Path $ObservationScript) -and (Test-Path (Join-Path $ValidationRunDir "summary.json"))) {
+  Write-Log "build_observation_api validation_run_dir=$ValidationRunDir"
+  & $PythonExe $ObservationScript `
+    --validation-run-dir $ValidationRunDir `
+    --output-dir (Join-Path $ApiDir "observations") `
+    --shard-size 50
+  if ($LASTEXITCODE -ne 0) { throw "observation API builder failed" }
+} else {
+  Write-Log "WARN observation_api_skipped script_or_validation_missing validation_run_dir=$ValidationRunDir"
+}
+
 Invoke-Git -C $PagesRepo config user.name "openhydronet-bot"
 Invoke-Git -C $PagesRepo config user.email "openhydronet-bot@users.noreply.github.com"
 Invoke-Git -C $PagesRepo remote set-url origin $RemoteUrl
@@ -141,6 +154,7 @@ Invoke-Git -C $PagesRepo add `
   "README.md" `
   "scripts/build_openhydronet_dashboard.py" `
   "scripts/build_openhydronet_history_api.py" `
+  "scripts/build_streamflow_observation_api.py" `
   "scripts/remote_backfill_openhydronet_history.ps1" `
   "scripts/remote_publish_openhydronet_latest.ps1"
 
