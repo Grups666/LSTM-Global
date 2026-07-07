@@ -40,7 +40,9 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.obsLoadingBasins = new Set();
     this.obsFailedBasins = new Set();
     this.obsRefreshRequests = new Map();
+    this.overviewModal = null;
     this.accuracyFilter = {
+      metric: "nse",
       minNse: -Infinity,
       lead: "all",
       observedOnly: false
@@ -50,6 +52,11 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       this.selected = payload.feature;
       this.showInspector(payload.feature);
       this.app.draw?.();
+    };
+    this.handleLayerToggle = (payload) => {
+      if (payload.layerId !== this.overviewLayerId) return;
+      if (payload.visible) this.showOverview();
+      else this.closeOverview();
     };
   }
 
@@ -83,6 +90,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.ensureLegend();
     this.showOverview();
     Foundation.eventBus.on(Foundation.Events.FEATURE_CLICK, this.handleFeatureClick);
+    Foundation.eventBus.on(Foundation.Events.LAYER_TOGGLE, this.handleLayerToggle);
     this.app.draw?.();
   }
 
@@ -116,7 +124,9 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.app.layerManager.removeLayer(this.overviewLayerId);
     this.app.unregisterLegend?.(this.legendId);
     Foundation.eventBus.off(Foundation.Events.FEATURE_CLICK, this.handleFeatureClick);
+    Foundation.eventBus.off(Foundation.Events.LAYER_TOGGLE, this.handleLayerToggle);
     this.closeChartModal();
+    this.destroyOverviewModal();
     this.selected = null;
   }
 
@@ -159,17 +169,13 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     });
     this.app.layerManager.addLayer({
       id: this.overviewLayerId,
-      name: "Observed Validation Overview",
-      type: "vector",
-      visible: true,
+      name: "Overview",
+      type: "overlay",
+      visible: false,
       interactive: false,
       moduleId: this.manifest.id,
-      groupPath: ["forecast"],
-      metadata: {
-        runDate: this.obsSummary?.runDate,
-        strictMatchedRecentBasins: this.obsSummary?.strictMatchedRecentBasins
-      },
-      renderer: (ctx, _layer, viewport) => this.renderValidationOverview(ctx, viewport)
+      metadata: { removable: false },
+      renderer: () => {}
     });
     this.app.updateLayerList?.();
   }
@@ -258,43 +264,46 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   showOverview() {
     const meta = this.data.meta || {};
     const summary = Array.isArray(this.data.leadSummary) ? this.data.leadSummary : [];
-    const sourceCounts = meta.latestForecastSourceCounts || {};
     const obs = this.obsSummary || {};
     const obsMetrics = obs.metrics || {};
-    const content = `
-      <div class="sf-overview">
-        ${this.renderModeButtons()}
-        <div class="sf-lead-row">${this.renderLeadButtons()}</div>
-        ${this.renderOverviewNote()}
+    const layer = this.app.layerManager.getLayer?.(this.overviewLayerId);
+    if (layer && !layer.visible) return;
+    this.ensureOverviewModal();
+    this.overviewModal.querySelector(".sf-overview-body").innerHTML = `
+      <section>
+        <p class="sf-overview-lead">
+          ${this.escape(this.overviewText())}
+        </p>
         ${this.renderAccuracyFilterControls()}
-        <div class="sf-card-grid">
-          ${this.metricCard("Basins", this.formatInt(meta.basinCount || this.basins.length))}
-          ${this.metricCard("Mapped", this.formatInt(meta.mappedBasinCount))}
-          ${this.metricCard("Forecast rows", this.formatInt(meta.rowCount))}
-          ${this.metricCard("Max lead", this.formatInt(meta.maxLead))}
-          ${this.metricCard("Forecast input", "GFS")}
-          ${this.metricCard("Obs basins", this.formatInt(obs.strictMatchedRecentBasins))}
-          ${this.metricCard("Obs rows", this.formatInt(obs.observationRows))}
+        <div class="sf-overview-metrics">
+          ${this.metricCard("Forecast basins", this.formatInt(meta.basinCount || this.basins.length))}
+          ${this.metricCard("Strict obs basins", this.formatInt(obs.strictMatchedRecentBasins))}
           ${this.metricCard("Validation rows", this.formatInt(obs.validationRows))}
-          ${this.metricCard("Obs NSE", this.formatMetric(obsMetrics.nse, 3))}
-          ${this.metricCard("Obs KGE", this.formatMetric(obsMetrics.kge, 3))}
-          ${this.metricCard("Obs MAE", this.formatFlow(obsMetrics.mae_mm_day))}
-        </div>
-        <div class="sf-meta-line">
-          <span>${this.escape(meta.model || "Forecast model")}</span>
-          <span>Issue ${this.escape(meta.latestIssueDate || "pending")}</span>
-          ${obs.runDate ? `<span>Obs run ${this.escape(obs.runDate)}</span>` : ""}
-          ${obs.startDate && obs.endDate ? `<span>Obs ${this.escape(obs.startDate)} to ${this.escape(obs.endDate)}</span>` : ""}
-          ${obs.sourceCounts ? `<span>Obs source ${this.escape(Object.keys(obs.sourceCounts).join(", ") || "none")}</span>` : ""}
+          ${this.metricCard("Overall NSE", this.formatMetric(obsMetrics.nse, 3))}
+          ${this.metricCard("Overall KGE", this.formatMetric(obsMetrics.kge, 3))}
+          ${this.metricCard("MAE mm/day", this.formatFlow(obsMetrics.mae_mm_day))}
         </div>
         ${this.renderObservationLeadSummary(obs.byLead || [])}
+      </section>
+      <section>
+        <h3>Validation contract</h3>
+        <p>
+          Observed streamflow is used only for verification. A basin enters this overview only when the public gauge id, station metadata, station name, coordinates, and recent daily observations pass strict correspondence checks.
+        </p>
+        <p>
+          Current public observations come from USGS daily mean discharge and cover ${this.escape(obs.startDate || "pending")} to ${this.escape(obs.endDate || "pending")}. Forecast inputs remain GFS forcing, static basin attributes, and product availability masks.
+        </p>
+      </section>
+      <section>
+        <h3>Forecast product</h3>
+        <p>
+          Issue ${this.escape(meta.latestIssueDate || "pending")} contains ${this.formatInt(meta.rowCount)} lead-wise P05/P50/P95 rows. The table below is the original forecast summary; the table above is the observed-streamflow validation summary.
+        </p>
         ${this.renderLeadSummary(summary)}
-      </div>
+      </section>
     `;
-    this.app.showInspector?.("LSTM Global", content);
-    this.bindModeButtons(null);
-    this.bindLeadButtons(null);
     this.bindAccuracyFilterControls();
+    this.overviewModal.classList.add("visible");
   }
 
   showInspector(basin) {
@@ -376,29 +385,37 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   renderAccuracyFilterControls() {
-    const thresholds = [
-      { label: "All", value: "-Infinity" },
-      { label: "NSE > 0", value: "0" },
-      { label: "NSE > 0.2", value: "0.2" },
-      { label: "NSE > 0.5", value: "0.5" }
-    ];
     const count = this.filteredBasinCount();
     const leadOptions = ["all", "1", "2", "3", "4", "5", "6", "7"].map((lead) => {
       const selected = String(this.accuracyFilter.lead) === lead ? "selected" : "";
       return `<option value="${lead}" ${selected}>${lead === "all" ? "All leads" : `Lead ${lead}`}</option>`;
     }).join("");
+    const threshold = Number.isFinite(Number(this.accuracyFilter.minNse)) ? Number(this.accuracyFilter.minNse) : -1;
     return `
       <div class="sf-filter-panel">
-        <div class="sf-filter-row">
-          <label class="sf-toggle"><input type="checkbox" data-sf-observed-only ${this.accuracyFilter.observedOnly ? "checked" : ""}> Strict obs only</label>
-          <label class="sf-select-label">Metric <select data-sf-filter-lead>${leadOptions}</select></label>
+        <div class="sf-filter-title">Reliability filter</div>
+        <div class="sf-filter-grid">
+          <label class="sf-filter-field">
+            <span>Metric</span>
+            <select data-sf-filter-metric aria-label="Reliability metric">
+              <option value="nse"${this.accuracyFilter.metric === "nse" ? " selected" : ""}>NSE</option>
+              <option value="kge"${this.accuracyFilter.metric === "kge" ? " selected" : ""}>KGE</option>
+            </select>
+          </label>
+          <label class="sf-filter-field">
+            <span>Lead</span>
+            <select data-sf-filter-lead aria-label="Validation lead">${leadOptions}</select>
+          </label>
+          <label class="sf-filter-field">
+            <span>Minimum</span>
+            <input data-sf-filter-threshold type="number" min="-1" max="1" step="0.05" value="${this.formatMetric(threshold, 2)}" aria-label="Minimum reliability threshold">
+          </label>
+          <label class="sf-filter-field sf-filter-slider">
+            <span>Threshold</span>
+            <input data-sf-filter-range type="range" min="-1" max="1" step="0.05" value="${this.formatMetric(threshold, 2)}" aria-label="Minimum reliability threshold slider">
+          </label>
         </div>
-        <div class="sf-filter-row">
-          ${thresholds.map((item) => {
-            const active = Number(item.value) === Number(this.accuracyFilter.minNse) ? "active" : "";
-            return `<button class="sf-filter ${active}" type="button" data-sf-min-nse="${item.value}">${this.escape(item.label)}</button>`;
-          }).join("")}
-        </div>
+        <label class="sf-filter-check"><input type="checkbox" data-sf-observed-only ${this.accuracyFilter.observedOnly ? "checked" : ""}> Show strict observed matches only</label>
         <div class="sf-filter-count">${this.formatInt(count)} basins visible under current accuracy filter</div>
       </div>
     `;
@@ -467,6 +484,47 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     });
   }
 
+  overviewText() {
+    const obs = this.obsSummary || {};
+    const matched = this.formatInt(obs.strictMatchedRecentBasins);
+    const total = this.formatInt(obs.totalForecastBasins);
+    const range = obs.startDate && obs.endDate ? `${obs.startDate} to ${obs.endDate}` : "the latest 30-day window";
+    return `${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${range}. Use the reliability filter to focus the map on basins whose recent validation skill meets the selected metric threshold.`;
+  }
+
+  ensureOverviewModal() {
+    if (this.overviewModal) return;
+    this.overviewModal = document.createElement("div");
+    this.overviewModal.className = "sf-overview-modal";
+    this.overviewModal.innerHTML = `
+      <div class="sf-overview-dialog" role="dialog" aria-label="Streamflow forecast overview">
+        <div class="sf-overview-header">
+          <div>
+            <div class="sf-overview-title">Overview</div>
+            <div class="sf-overview-subtitle">Observed validation and reliability filter</div>
+          </div>
+          <button class="sf-overview-close" type="button" aria-label="Close"></button>
+        </div>
+        <div class="sf-overview-body"></div>
+      </div>
+    `;
+    this.overviewModal.querySelector(".sf-overview-close").onclick = () => {
+      this.app.layerManager.setVisibility(this.overviewLayerId, false);
+      this.closeOverview();
+      this.app.updateLayerList?.();
+    };
+    document.body.appendChild(this.overviewModal);
+  }
+
+  closeOverview() {
+    this.overviewModal?.classList.remove("visible");
+  }
+
+  destroyOverviewModal() {
+    this.overviewModal?.remove();
+    this.overviewModal = null;
+  }
+
   renderLeadSummary(summary) {
     if (!summary.length) return "";
     const rows = summary.map((item) => `
@@ -487,55 +545,40 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   bindAccuracyFilterControls() {
-    document.querySelectorAll("[data-sf-min-nse]").forEach((button) => {
-      button.addEventListener("click", () => {
-        this.accuracyFilter.minNse = Number(button.dataset.sfMinNse);
+    const root = this.overviewModal?.querySelector(".sf-filter-panel") || document;
+    const applyThreshold = (value) => {
+      const threshold = Number(value);
+      this.accuracyFilter.minNse = Number.isFinite(threshold) ? threshold : -Infinity;
+      this.showOverview();
+      this.app.draw?.();
+    };
+    root.querySelectorAll("[data-sf-filter-metric]").forEach((select) => {
+      select.addEventListener("change", () => {
+        this.accuracyFilter.metric = select.value === "kge" ? "kge" : "nse";
         this.showOverview();
         this.app.draw?.();
       });
     });
-    document.querySelectorAll("[data-sf-filter-lead]").forEach((select) => {
+    root.querySelectorAll("[data-sf-filter-lead]").forEach((select) => {
       select.addEventListener("change", () => {
         this.accuracyFilter.lead = select.value || "all";
         this.showOverview();
         this.app.draw?.();
       });
     });
-    document.querySelectorAll("[data-sf-observed-only]").forEach((input) => {
+    root.querySelectorAll("[data-sf-filter-threshold]").forEach((input) => {
+      input.addEventListener("change", () => applyThreshold(input.value));
+    });
+    root.querySelectorAll("[data-sf-filter-range]").forEach((input) => {
+      input.addEventListener("input", () => applyThreshold(input.value));
+    });
+    root.querySelectorAll("[data-sf-observed-only]").forEach((input) => {
       input.addEventListener("change", () => {
         this.accuracyFilter.observedOnly = Boolean(input.checked);
         this.showOverview();
         this.app.draw?.();
       });
     });
-  }
-
-  renderValidationOverview(ctx, viewport) {
-    if (!this.obsBasinMeta.size) return;
-    const base = (viewport.height / 180) * viewport.scale;
-    const { width, height, offsetX } = viewport;
-    const leftLon = (-width / 2 - offsetX) / base;
-    const rightLon = (width / 2 - offsetX) / base;
-    const firstSeg = Math.floor(leftLon / 360);
-    const lastSeg = Math.ceil(rightLon / 360);
-    ctx.save();
-    for (let seg = firstSeg; seg <= lastSeg; seg++) {
-      const lonOffset = seg * 360;
-      for (const basin of this.basins) {
-        if (!this.obsBasinMeta.has(basin.id) || !this.passesAccuracyFilter(basin)) continue;
-        const x = width / 2 + (basin.lon + lonOffset) * base + offsetX;
-        const y = height / 2 - basin.lat * base + viewport.offsetY;
-        if (x < -22 || x > width + 22 || y < -22 || y > height + 22) continue;
-        const nse = this.filterNseValue(basin.id);
-        ctx.beginPath();
-        ctx.arc(x, y, 7.4, 0, Math.PI * 2);
-        ctx.strokeStyle = this.skillColor(nse);
-        ctx.lineWidth = Number(nse) > 0.5 ? 2.8 : 1.4;
-        ctx.globalAlpha = Number(nse) > 0.5 ? 0.9 : 0.42;
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
   }
 
   renderObservationLeadSummary(summary) {
@@ -657,11 +700,12 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     return Number.isFinite(Number(value)) ? Number(value) : null;
   }
 
-  filterNseValue(basinId) {
+  filterMetricValue(basinId) {
     const meta = this.obsBasinMeta.get(String(basinId));
     if (!meta) return NaN;
-    if (String(this.accuracyFilter.lead) === "all") return Number(meta.nse);
-    return Number(meta.byLead?.[String(this.accuracyFilter.lead)]?.nse);
+    const metric = this.accuracyFilter.metric === "kge" ? "kge" : "nse";
+    if (String(this.accuracyFilter.lead) === "all") return Number(meta[metric]);
+    return Number(meta.byLead?.[String(this.accuracyFilter.lead)]?.[metric]);
   }
 
   passesAccuracyFilter(basin) {
@@ -670,7 +714,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     if (this.accuracyFilter.observedOnly && !hasObs) return false;
     const minNse = Number(this.accuracyFilter.minNse);
     if (!Number.isFinite(minNse)) return true;
-    const nse = this.filterNseValue(basin.id);
+    const nse = this.filterMetricValue(basin.id);
     return Number.isFinite(nse) && nse > minNse;
   }
 
@@ -1243,30 +1287,55 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const style = document.createElement("style");
     style.id = "streamflow-forecast-styles";
     style.textContent = `
-      .sf-overview,.sf-basin-panel,.sf-modal{--sf-surface:#fff;--sf-surface-soft:#f8fafc;--sf-surface-chip:#f1f5f9;--sf-border:#e2e8f0;--sf-border-strong:#cbd5e1;--sf-text:#0f172a;--sf-muted:#64748b;--sf-focus:#2563eb;--sf-focus-soft:rgba(37,99,235,.16);--sf-button:#fff;--sf-button-active:#0f172a;--sf-button-active-text:#fff;--sf-chart-bg:#f8fafc;--sf-band:rgba(14,165,233,.18);--sf-p50:#0284c7;--sf-obs:#0f172a;--sf-overlay:rgba(15,23,42,.58);--sf-shadow:0 24px 80px rgba(15,23,42,.35);--sf-readout-bg:rgba(255,255,255,.94)}
-      body.theme-dark .sf-overview,body.theme-dark .sf-basin-panel,body.theme-dark .sf-modal{--sf-surface:#111827;--sf-surface-soft:#1f2937;--sf-surface-chip:#182235;--sf-border:#334155;--sf-border-strong:#475569;--sf-text:#e5e7eb;--sf-muted:#94a3b8;--sf-focus:#38bdf8;--sf-focus-soft:rgba(56,189,248,.18);--sf-button:#1f2937;--sf-button-active:#38bdf8;--sf-button-active-text:#082f49;--sf-chart-bg:#0f172a;--sf-band:rgba(56,189,248,.20);--sf-p50:#38bdf8;--sf-obs:#f8fafc;--sf-overlay:rgba(2,6,23,.72);--sf-shadow:0 24px 80px rgba(0,0,0,.58);--sf-readout-bg:rgba(17,24,39,.94)}
+      .sf-overview,.sf-overview-modal,.sf-overview-dialog,.sf-basin-panel,.sf-modal{--sf-surface:#fff;--sf-surface-soft:#f8fafc;--sf-surface-chip:#f1f5f9;--sf-border:#e2e8f0;--sf-border-strong:#cbd5e1;--sf-text:#0f172a;--sf-muted:#64748b;--sf-focus:#2563eb;--sf-focus-soft:rgba(37,99,235,.16);--sf-button:#fff;--sf-button-active:#0f172a;--sf-button-active-text:#fff;--sf-chart-bg:#f8fafc;--sf-band:rgba(14,165,233,.18);--sf-p50:#0284c7;--sf-obs:#0f172a;--sf-overlay:rgba(15,23,42,.58);--sf-shadow:0 24px 80px rgba(15,23,42,.35);--sf-readout-bg:rgba(255,255,255,.94)}
+      body.theme-dark .sf-overview,body.theme-dark .sf-overview-modal,body.theme-dark .sf-overview-dialog,body.theme-dark .sf-basin-panel,body.theme-dark .sf-modal{--sf-surface:#111827;--sf-surface-soft:#1f2937;--sf-surface-chip:#182235;--sf-border:#334155;--sf-border-strong:#475569;--sf-text:#e5e7eb;--sf-muted:#94a3b8;--sf-focus:#38bdf8;--sf-focus-soft:rgba(56,189,248,.18);--sf-button:#1f2937;--sf-button-active:#38bdf8;--sf-button-active-text:#082f49;--sf-chart-bg:#0f172a;--sf-band:rgba(56,189,248,.20);--sf-p50:#38bdf8;--sf-obs:#f8fafc;--sf-overlay:rgba(2,6,23,.72);--sf-shadow:0 24px 80px rgba(0,0,0,.58);--sf-readout-bg:rgba(17,24,39,.94)}
       .sf-lead-row{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
-      .sf-lead{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:6px 9px;font-size:12px;font-weight:700;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,color .16s ease}
+      .sf-lead{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:6px 9px;font-size:12px;font-weight:500;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,color .16s ease}
       .sf-lead:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
-      .sf-lead.active{background:var(--sf-button-active);border-color:var(--sf-button-active);color:var(--sf-button-active-text)}
+      .sf-lead.active{background:var(--sf-button-active);border-color:var(--sf-button-active);color:var(--sf-button-active-text);font-weight:600}
       .sf-mode-row{display:flex;gap:8px;margin:0 0 10px}
-      .sf-mode{border:1px solid var(--sf-border-strong);background:var(--sf-surface-muted);color:var(--sf-muted);border-radius:6px;padding:6px 10px;font-size:12px;font-weight:800;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,color .16s ease}
+      .sf-mode{border:1px solid var(--sf-border-strong);background:var(--sf-surface-muted);color:var(--sf-muted);border-radius:6px;padding:6px 10px;font-size:12px;font-weight:500;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,color .16s ease}
       .sf-mode:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
-      .sf-mode.active{background:var(--sf-text);border-color:var(--sf-text);color:var(--sf-surface)}
+      .sf-mode.active{background:var(--sf-text);border-color:var(--sf-text);color:var(--sf-surface);font-weight:600}
+      .sf-overview-modal{position:fixed;inset:0;background:var(--sf-overlay);z-index:4900;display:none;align-items:flex-start;justify-content:center;padding:28px 18px;overflow:auto}
+      .sf-overview-modal.visible{display:flex}
+      .sf-overview-dialog{width:min(860px,96vw);max-height:calc(100vh - 56px);overflow:auto;background:var(--sf-surface);border:1px solid var(--sf-border);border-radius:8px;box-shadow:var(--sf-shadow)}
+      .sf-overview-header{position:sticky;top:0;z-index:1;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;background:var(--sf-surface);border-bottom:1px solid var(--sf-border);padding:16px 18px}
+      .sf-overview-title{color:var(--sf-text);font-size:18px;font-weight:600;line-height:1.2}
+      .sf-overview-subtitle{color:var(--sf-muted);font-size:12px;margin-top:3px}
+      .sf-overview-close{position:relative;display:inline-grid;place-items:center;flex:0 0 34px;width:34px;height:34px;aspect-ratio:1/1;border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:0;cursor:pointer}
+      .sf-overview-close::before,.sf-overview-close::after{content:"";position:absolute;left:50%;top:50%;width:15px;height:2px;background:currentColor;border-radius:999px;transform-origin:center}
+      .sf-overview-close::before{transform:translate(-50%,-50%) rotate(45deg)}
+      .sf-overview-close::after{transform:translate(-50%,-50%) rotate(-45deg)}
+      .sf-overview-close:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
+      .sf-overview-body{display:grid;gap:18px;padding:18px;color:var(--sf-text);font-size:13px;line-height:1.5}
+      .sf-overview-body section{display:grid;gap:12px}
+      .sf-overview-body h3{margin:0;color:var(--sf-text);font-size:14px;font-weight:600;line-height:1.3}
+      .sf-overview-body p{margin:0;color:var(--sf-muted)}
+      .sf-overview-lead{font-size:13px;color:var(--sf-text)!important}
+      .sf-overview-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
       .sf-overview-note{display:grid;gap:4px;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:10px;margin:0 0 12px;color:var(--sf-muted);font-size:12px;line-height:1.4}
       .sf-overview-note strong{color:var(--sf-text);font-size:13px}
-      .sf-filter-panel{display:grid;gap:8px;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:10px;margin:0 0 14px}
+      .sf-filter-panel{display:grid;gap:10px;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:12px;margin:0}
+      .sf-filter-title{color:var(--sf-text);font-size:13px;font-weight:600}
+      .sf-filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;align-items:end}
+      .sf-filter-field{display:grid;gap:5px;color:var(--sf-muted);font-size:11px}
+      .sf-filter-field span{color:var(--sf-muted)}
+      .sf-filter-field select,.sf-filter-field input[type="number"]{width:100%;box-sizing:border-box;border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:7px 8px;font-size:12px;font-weight:400}
+      .sf-filter-slider input{width:100%;accent-color:var(--sf-focus)}
+      .sf-filter-check{display:inline-flex;align-items:center;gap:7px;color:var(--sf-text);font-size:12px;font-weight:400}
+      .sf-filter-check input{width:15px;height:15px;accent-color:var(--sf-focus)}
       .sf-filter-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-      .sf-filter{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:6px 9px;font-size:12px;font-weight:800;cursor:pointer}
+      .sf-filter{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:6px 9px;font-size:12px;font-weight:500;cursor:pointer}
       .sf-filter:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
-      .sf-filter.active{background:var(--sf-button-active);border-color:var(--sf-button-active);color:var(--sf-button-active-text)}
-      .sf-toggle,.sf-select-label{display:inline-flex;align-items:center;gap:6px;color:var(--sf-text);font-size:12px;font-weight:750}
+      .sf-filter.active{background:var(--sf-button-active);border-color:var(--sf-button-active);color:var(--sf-button-active-text);font-weight:600}
+      .sf-toggle,.sf-select-label{display:inline-flex;align-items:center;gap:6px;color:var(--sf-text);font-size:12px;font-weight:500}
       .sf-toggle input{width:15px;height:15px;accent-color:var(--sf-focus)}
       .sf-select-label select{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:5px 8px;font-size:12px}
       .sf-filter-count{color:var(--sf-muted);font-size:11px}
       .sf-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0 0 14px}
       .sf-card{background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:9px}
-      .sf-card-value{font-size:16px;font-weight:800;color:var(--sf-text);line-height:1.2;overflow-wrap:anywhere}
+      .sf-card-value{font-size:16px;font-weight:550;color:var(--sf-text);line-height:1.2;overflow-wrap:anywhere}
       .sf-card-label{font-size:11px;color:var(--sf-muted);margin-top:3px}
       .sf-input-note{display:grid;gap:3px;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:9px 10px;margin:0 0 12px;color:var(--sf-muted);font-size:11px;line-height:1.38}
       .sf-input-note strong{color:var(--sf-text);font-size:12px}
@@ -1274,6 +1343,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-meta-line span,.sf-modal-meta{background:var(--sf-surface-chip);border:1px solid var(--sf-border);border-radius:999px;padding:4px 8px}
       .sf-table{width:100%;border-collapse:collapse;font-size:11px}
       .sf-table th,.sf-table td{padding:6px;border-bottom:1px solid var(--sf-border);text-align:right;color:var(--sf-text)}
+      .sf-table th{font-weight:500;color:var(--sf-muted)}
       .sf-table th:first-child,.sf-table td:first-child{text-align:left}
       .sf-status{display:flex;justify-content:space-between;gap:8px;border-radius:6px;padding:9px 10px;margin:0 0 12px;font-size:12px}
       .sf-status.validated{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
@@ -1300,8 +1370,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-hover-dot{opacity:0;stroke:var(--sf-chart-bg);stroke-width:2}
       .sf-hover-dot-p50{fill:var(--sf-p50)}
       .sf-hover-dot-obs{fill:var(--sf-obs)}
-      .sf-hover-label{opacity:0;fill:var(--sf-text);font-size:11px;font-weight:700;paint-order:stroke;stroke:var(--sf-chart-bg);stroke-width:3px;stroke-linejoin:round;pointer-events:none}
-      .sf-hover-label-band,.sf-hover-label-date{fill:var(--sf-muted);font-weight:650}
+      .sf-hover-label{opacity:0;fill:var(--sf-text);font-size:11px;font-weight:500;paint-order:stroke;stroke:var(--sf-chart-bg);stroke-width:3px;stroke-linejoin:round;pointer-events:none}
+      .sf-hover-label-band,.sf-hover-label-date{fill:var(--sf-muted);font-weight:500}
       .sf-hover-label-date{font-size:10px}
       .sf-chart-shell.is-hovering .sf-hover-v,.sf-chart-shell.is-hovering .sf-hover-h,.sf-chart-shell.is-hovering .sf-hover-dot{opacity:1}
       .sf-chart-shell.is-hovering .sf-hover-label{opacity:.78}
@@ -1312,8 +1382,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-legend-p50{color:var(--sf-p50)}
       .sf-legend-obs{color:var(--sf-obs)}
       .sf-empty-chart{height:138px;display:grid;place-items:center;background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:8px;text-align:center;color:var(--sf-muted)}
-      .sf-empty-chart div{font-size:24px;font-weight:800;color:var(--sf-text)}
-      .sf-history-overlay{position:absolute;right:10px;top:10px;z-index:2;background:var(--sf-readout-bg);border:1px solid var(--sf-border);border-radius:6px;padding:4px 7px;color:var(--sf-muted);font-size:11px;font-weight:800;box-shadow:0 8px 20px rgba(15,23,42,.12);pointer-events:none}
+      .sf-empty-chart div{font-size:24px;font-weight:500;color:var(--sf-text)}
+      .sf-history-overlay{position:absolute;right:10px;top:10px;z-index:2;background:var(--sf-readout-bg);border:1px solid var(--sf-border);border-radius:6px;padding:4px 7px;color:var(--sf-muted);font-size:11px;font-weight:500;box-shadow:0 8px 20px rgba(15,23,42,.12);pointer-events:none}
       .sf-legend{font-size:11px;color:var(--sf-muted,#475569)}
       body.theme-dark .sf-legend{color:#94a3b8}
       .sf-gradient{height:9px;border-radius:999px;background:linear-gradient(90deg,#7c3aed,#2563eb,#0ea5e9,#10b981,#f59e0b);margin:6px 0}
@@ -1330,7 +1400,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-modal-card{width:min(900px,96vw);max-height:92vh;overflow:auto;background:var(--sf-surface);border:1px solid var(--sf-border);border-radius:8px;box-shadow:var(--sf-shadow);padding:18px}
       .sf-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
       .sf-modal-title{margin:0;color:var(--sf-text);font-size:18px;line-height:1.25}
-      .sf-kicker{margin:0 0 4px;color:var(--sf-muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px;font-weight:800}
+      .sf-kicker{margin:0 0 4px;color:var(--sf-muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px;font-weight:500}
       .sf-modal-chart-wrap{position:relative}
       .sf-modal-close{display:inline-grid;place-items:center;flex:0 0 34px;width:34px;height:34px;aspect-ratio:1/1;border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:0;cursor:pointer}
       .sf-modal-close span{position:relative;display:block;width:16px;height:16px;aspect-ratio:1/1}
@@ -1339,6 +1409,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-modal-close span::after{transform:translate(-50%,-50%) rotate(-45deg)}
       .sf-modal-close:hover{border-color:var(--sf-focus);box-shadow:0 0 0 2px var(--sf-focus-soft)}
       .sf-modal-meta{display:inline-block;margin:0 0 12px;color:var(--sf-muted);font-size:12px}
+      @media (max-width:720px){.sf-overview-modal{padding:14px 10px}.sf-overview-dialog{width:100%;max-height:calc(100vh - 28px)}.sf-overview-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.sf-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media (max-width:460px){.sf-overview-metrics,.sf-filter-grid{grid-template-columns:1fr}.sf-overview-header{padding:14px}.sf-overview-body{padding:14px}}
     `;
     document.head.appendChild(style);
   }
@@ -1370,3 +1442,4 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .replaceAll("'", "&#39;");
   }
 };
+
