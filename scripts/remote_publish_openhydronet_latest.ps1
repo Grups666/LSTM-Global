@@ -1,7 +1,7 @@
 ﻿param(
   [string]$OpenHydroNetRoot = "D:\SSH\OpenHydroNet_FloodHub_Operational",
   [string]$PagesRepo = "D:\SSH\LSTM-Global",
-  [string]$RemoteUrl = "git@github.com:Grups666/LSTM-Global.git",
+  [string]$RemoteUrl = "ssh://git@ssh.github.com:443/Grups666/LSTM-Global.git",
   [string]$CloneUrl = "https://github.com/Grups666/LSTM-Global.git",
   [string]$Branch = "main",
   [string]$PythonExe = "D:\SSH\conda_envs\hydro\python.exe",
