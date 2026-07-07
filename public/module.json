@@ -34,9 +34,9 @@
       },
       {
         "id": "streamflow-forecast-basins-validation-overview",
-        "name": "Observed Validation Overview",
-        "type": "vector",
-        "source": "module.observedValidationBasins",
+        "name": "Overview",
+        "type": "overlay",
+        "source": "module.overview",
         "interactive": false
       }
     ],
