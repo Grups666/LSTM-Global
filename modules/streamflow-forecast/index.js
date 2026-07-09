@@ -266,6 +266,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const summary = Array.isArray(this.data.leadSummary) ? this.data.leadSummary : [];
     const obs = this.obsSummary || {};
     const obsMetrics = obs.metrics || {};
+    const candidate = obs.candidateMetrics || {};
     const layer = this.app.layerManager.getLayer?.(this.overviewLayerId);
     if (layer && !layer.visible) return;
     this.ensureOverviewModal();
@@ -282,8 +283,12 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Overall NSE", this.formatMetric(obsMetrics.nse, 3))}
           ${this.metricCard("Overall KGE", this.formatMetric(obsMetrics.kge, 3))}
           ${this.metricCard("MAE mm/day", this.formatFlow(obsMetrics.mae_mm_day))}
+          ${this.metricCard("Posttrain basins", this.formatInt(candidate.basinCount))}
+          ${this.metricCard("L1-2 median NSE", this.formatMetric(candidate.lead12MedianNse, 3))}
+          ${this.metricCard("L1-2 NSE > 0.4", this.formatInt(candidate.lead12NseGt04))}
         </div>
         ${this.renderObservationLeadSummary(obs.byLead || [])}
+        ${this.renderCandidateLeadSummary(candidate)}
       </section>
       <section>
         <h3>Validation contract</h3>
@@ -314,6 +319,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const historyState = this.historyState(basin.id);
     const obsState = this.obsState(basin.id);
     const obsMetrics = this.obsMetricsForLead(basin, this.selectedLead);
+    const candidateMetrics = this.candidateMetricsForLead(basin, this.selectedLead);
     const content = `
       <div class="sf-basin-panel">
         ${this.renderModeButtons()}
@@ -324,6 +330,9 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Obs KGE", this.formatMetric(obsMetrics?.kge, 3))}
           ${this.metricCard("Obs MAE", this.formatFlow(obsMetrics?.mae))}
           ${this.metricCard("Obs pairs", this.formatInt(obsMetrics?.n))}
+          ${this.metricCard("Posttrain NSE", this.formatMetric(candidateMetrics?.nse, 3))}
+          ${this.metricCard("Posttrain KGE", this.formatMetric(candidateMetrics?.kge, 3))}
+          ${this.metricCard("Skill class", this.skillClassLabel(candidateMetrics?.skillClass))}
           ${this.metricCard("Latest P50", this.formatFlow(latest?.p50))}
           ${this.metricCard("P05-P95", `${this.formatFlow(latest?.p05)} - ${this.formatFlow(latest?.p95)}`)}
           ${this.metricCard("Primary input", "GFS forecast")}
@@ -601,6 +610,27 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     `;
   }
 
+  renderCandidateLeadSummary(candidate) {
+    const summary = Array.isArray(candidate?.byLead) ? candidate.byLead : [];
+    if (!summary.length) return "";
+    const rows = summary.slice(0, 7).map((item) => `
+      <tr>
+        <td>L${this.escape(item.leadTime)}</td>
+        <td>${this.formatInt(item.basins)}</td>
+        <td>${this.formatMetric(item.medianNse, 3)}</td>
+        <td>${this.formatInt(item.nseGt0)}</td>
+        <td>${this.formatInt(item.nseGt04)}</td>
+        <td>${this.formatInt(item.nseGt05)}</td>
+      </tr>
+    `).join("");
+    return `
+      <table class="sf-table sf-obs-table">
+        <thead><tr><th>Posttrain lead</th><th>Basins</th><th>Median NSE</th><th>NSE &gt; 0</th><th>NSE &gt; 0.4</th><th>NSE &gt; 0.5</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
   statusBanner(basin) {
     const hasObs = this.obsByBasin.has(basin.id);
     const label = hasObs ? "Strict observed streamflow match" : "OpenHydroNet forecast";
@@ -660,6 +690,18 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     };
   }
 
+  candidateMetricsForLead(basin, lead) {
+    const meta = this.obsBasinMeta.get(String(basin.id));
+    const candidate = meta?.candidateMetrics;
+    if (!candidate) return null;
+    const byLead = candidate.byLead?.[String(lead)] || meta.candidateByLead?.[String(lead)] || {};
+    return {
+      ...byLead,
+      lead12MeanNse: candidate.lead12MeanNse,
+      skillClass: candidate.skillClass
+    };
+  }
+
   latestForLead(basin) {
     return basin.latestForecast?.[String(this.selectedLead)] || null;
   }
@@ -704,8 +746,26 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const meta = this.obsBasinMeta.get(String(basinId));
     if (!meta) return NaN;
     const metric = this.accuracyFilter.metric === "kge" ? "kge" : "nse";
-    if (String(this.accuracyFilter.lead) === "all") return Number(meta[metric]);
-    return Number(meta.byLead?.[String(this.accuracyFilter.lead)]?.[metric]);
+    const lead = String(this.accuracyFilter.lead);
+    if (lead === "all") {
+      const candidateValue = metric === "nse" ? Number(meta.candidateMetrics?.lead12MeanNse) : NaN;
+      return Number.isFinite(candidateValue) ? candidateValue : Number(meta[metric]);
+    }
+    const candidateValue = Number(meta.candidateMetrics?.byLead?.[lead]?.[metric] ?? meta.candidateByLead?.[lead]?.[metric]);
+    if (Number.isFinite(candidateValue)) return candidateValue;
+    return Number(meta.byLead?.[lead]?.[metric]);
+  }
+
+  skillClassLabel(skillClass) {
+    const labels = {
+      strong_ge_0_5: ">= 0.5",
+      usable_ge_0_4: "0.4-0.5",
+      positive_but_below_0_4: "0-0.4",
+      low_negative_ge_minus_0_5: "-0.5-0",
+      poor_lt_minus_0_5: "< -0.5",
+      nse_missing_or_constant_obs: "No NSE"
+    };
+    return labels[String(skillClass || "")] || "Pending";
   }
 
   passesAccuracyFilter(basin) {
