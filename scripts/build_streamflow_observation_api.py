@@ -218,7 +218,7 @@ def load_candidate_metrics(
     summary = {
         "label": label,
         "split": split,
-        "source": str(metrics_csv),
+        "source": metrics_csv.name,
         "schema": "streamflow-observation-candidate-metrics-v1",
         "candidateSchema": manifest.get("schema"),
         "gate": manifest.get("gate"),
