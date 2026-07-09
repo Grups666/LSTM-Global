@@ -279,15 +279,13 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-overview-metrics">
           ${this.metricCard("Forecast basins", this.formatInt(meta.basinCount || this.basins.length))}
           ${this.metricCard("Strict obs basins", this.formatInt(obs.strictMatchedRecentBasins))}
-          ${this.metricCard("Evaluated obs basins", this.formatInt(candidate.basinCount))}
           ${this.metricCard("Validation rows", this.formatInt(obs.validationRows))}
           ${this.metricCard("Overall NSE", this.formatMetric(obsMetrics.nse, 3))}
           ${this.metricCard("Overall KGE", this.formatMetric(obsMetrics.kge, 3))}
           ${this.metricCard("MAE mm/day", this.formatFlow(obsMetrics.mae_mm_day))}
+          ${this.metricCard("Posttrain basins", this.formatInt(candidate.basinCount))}
           ${this.metricCard("L1-2 median NSE", this.formatMetric(candidate.lead12MedianNse, 3))}
-          ${this.metricCard("L1-2 NSE > 0", this.formatInt(candidate.lead12NseGt0))}
           ${this.metricCard("L1-2 NSE > 0.4", this.formatInt(candidate.lead12NseGt04))}
-          ${this.metricCard("L1-2 NSE > 0.5", this.formatInt(candidate.lead12NseGt05))}
         </div>
         ${this.renderObservationLeadSummary(obs.byLead || [])}
         ${this.renderCandidateLeadSummary(candidate)}
@@ -397,8 +395,6 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   renderAccuracyFilterControls() {
     const count = this.filteredBasinCount();
-    const obsMatched = this.obsSummary?.strictMatchedRecentBasins;
-    const candidateBasins = this.obsSummary?.candidateMetrics?.basinCount;
     const leadOptions = ["all", "1", "2", "3", "4", "5", "6", "7"].map((lead) => {
       const selected = String(this.accuracyFilter.lead) === lead ? "selected" : "";
       return `<option value="${lead}" ${selected}>${lead === "all" ? "All leads" : `Lead ${lead}`}</option>`;
@@ -429,10 +425,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           </label>
         </div>
         <label class="sf-filter-check"><input type="checkbox" data-sf-observed-only ${this.accuracyFilter.observedOnly ? "checked" : ""}> Show strict observed matches only</label>
-        <div class="sf-filter-count">
-          <span>${this.formatInt(count)} basins visible after the current reliability threshold.</span>
-          <span>${this.formatInt(obsMatched)} strict obs matches; ${this.formatInt(candidateBasins)} posttrain-evaluated obs basins.</span>
-        </div>
+        <div class="sf-filter-count">${this.formatInt(count)} basins visible under current accuracy filter</div>
       </div>
     `;
   }
@@ -1399,7 +1392,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       .sf-toggle,.sf-select-label{display:inline-flex;align-items:center;gap:6px;color:var(--sf-text);font-size:12px;font-weight:500}
       .sf-toggle input{width:15px;height:15px;accent-color:var(--sf-focus)}
       .sf-select-label select{border:1px solid var(--sf-border-strong);background:var(--sf-button);color:var(--sf-text);border-radius:6px;padding:5px 8px;font-size:12px}
-      .sf-filter-count{display:grid;gap:2px;color:var(--sf-muted);font-size:11px}
+      .sf-filter-count{color:var(--sf-muted);font-size:11px}
       .sf-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0 0 14px}
       .sf-card{background:var(--sf-surface-soft);border:1px solid var(--sf-border);border-radius:6px;padding:9px}
       .sf-card-value{font-size:16px;font-weight:550;color:var(--sf-text);line-height:1.2;overflow-wrap:anywhere}
