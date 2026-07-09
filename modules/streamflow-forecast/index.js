@@ -382,19 +382,22 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   renderOverviewNote() {
     const matched = this.formatInt(this.obsSummary?.strictMatchedRecentBasins);
     const total = this.formatInt(this.obsSummary?.totalForecastBasins);
+    const visibleObs = this.formatInt(this.filteredObservedBasinCount());
     const range = this.obsSummary?.startDate && this.obsSummary?.endDate
       ? `${this.obsSummary.startDate} to ${this.obsSummary.endDate}`
       : "latest 30-day window";
     return `
       <div class="sf-overview-note">
-        <strong>Observed validation overview</strong>
-        <span>${matched} of ${total} forecast basins have strict public observed-streamflow matches. The validation layer uses the ${this.escape(range)} window and never feeds observations into inference.</span>
+        <div class="sf-overview-note-title">Observed validation overview</div>
+        <span>${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${this.escape(range)}.</span>
+        <span>${visibleObs} strict observed matches are visible under the current reliability filter. Observations are validation-only and never feed inference.</span>
       </div>
     `;
   }
 
   renderAccuracyFilterControls() {
     const count = this.filteredBasinCount();
+    const observedCount = this.filteredObservedBasinCount();
     const leadOptions = ["all", "1", "2", "3", "4", "5", "6", "7"].map((lead) => {
       const selected = String(this.accuracyFilter.lead) === lead ? "selected" : "";
       return `<option value="${lead}" ${selected}>${lead === "all" ? "All leads" : `Lead ${lead}`}</option>`;
@@ -425,7 +428,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           </label>
         </div>
         <label class="sf-filter-check"><input type="checkbox" data-sf-observed-only ${this.accuracyFilter.observedOnly ? "checked" : ""}> Show strict observed matches only</label>
-        <div class="sf-filter-count">${this.formatInt(count)} basins visible under current accuracy filter</div>
+        <div class="sf-filter-count">${this.formatInt(count)} forecast basins visible; ${this.formatInt(observedCount)} strict observed matches included under the current reliability filter</div>
       </div>
     `;
   }
@@ -780,6 +783,13 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   filteredBasinCount() {
     return this.basins.reduce((count, basin) => count + (this.passesAccuracyFilter(basin) ? 1 : 0), 0);
+  }
+
+  filteredObservedBasinCount() {
+    return this.basins.reduce((count, basin) => {
+      const hasObs = this.obsBasinMeta.has(String(basin.id));
+      return count + (hasObs && this.passesAccuracyFilter(basin) ? 1 : 0);
+    }, 0);
   }
 
   skillColor(nse) {
