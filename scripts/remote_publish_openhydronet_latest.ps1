@@ -11,6 +11,11 @@
   [string]$PagesWorktree = "D:\SSH\LSTM-Global-gh-pages-publish",
   [string]$HistoryRoot = "D:\SSH\OpenHydroNet_FloodHub_Operational\outputs\api\history",
   [string]$ValidationRunDir = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\validation\public_streamflow_daily\latest",
+  [string]$CandidateMetricsCsv = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\gate_publish_valbest_fulltrain_pilot_weighted_lead12_20260709\gate_valbest_lead12_fulltrain_pilot_weighted\basin_lead_metrics.csv",
+  [string]$CandidateManifestJson = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\gate_publish_valbest_fulltrain_pilot_weighted_lead12_20260709\gate_valbest_lead12_fulltrain_pilot_weighted\manifest.json",
+  [string]$CandidateSkillClassesCsv = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\gate_valbest_lead12_basin_skill_classes_20260709.csv",
+  [string]$CandidateLabel = "Strict obs posttrain gate lead1-2",
+  [string]$CandidateMetricsSplit = "test",
   [int]$HistoryDays = 30,
   [switch]$SkipPull,
   [switch]$Push
@@ -132,10 +137,30 @@ if ($LASTEXITCODE -ne 0) { throw "history API builder failed" }
 $ObservationScript = Join-Path $PagesRepo "scripts\build_streamflow_observation_api.py"
 if ((Test-Path $ObservationScript) -and (Test-Path (Join-Path $ValidationRunDir "summary.json"))) {
   Write-Log "build_observation_api validation_run_dir=$ValidationRunDir"
-  & $PythonExe $ObservationScript `
-    --validation-run-dir $ValidationRunDir `
-    --output-dir (Join-Path $ApiDir "observations") `
-    --shard-size 50
+  $ObservationArgs = @(
+    "--validation-run-dir", $ValidationRunDir,
+    "--output-dir", (Join-Path $ApiDir "observations"),
+    "--shard-size", "50"
+  )
+  if (Test-Path $CandidateMetricsCsv) {
+    Write-Log "observation_candidate_metrics=$CandidateMetricsCsv"
+    $ObservationArgs += @("--candidate-metrics-csv", $CandidateMetricsCsv)
+    $ObservationArgs += @("--candidate-metrics-split", $CandidateMetricsSplit)
+    $ObservationArgs += @("--candidate-label", $CandidateLabel)
+    if (Test-Path $CandidateManifestJson) {
+      $ObservationArgs += @("--candidate-manifest-json", $CandidateManifestJson)
+    } else {
+      Write-Log "WARN candidate_manifest_missing path=$CandidateManifestJson"
+    }
+    if (Test-Path $CandidateSkillClassesCsv) {
+      $ObservationArgs += @("--candidate-skill-classes-csv", $CandidateSkillClassesCsv)
+    } else {
+      Write-Log "WARN candidate_skill_classes_missing path=$CandidateSkillClassesCsv"
+    }
+  } else {
+    Write-Log "WARN candidate_metrics_missing path=$CandidateMetricsCsv"
+  }
+  & $PythonExe $ObservationScript @ObservationArgs
   if ($LASTEXITCODE -ne 0) { throw "observation API builder failed" }
 } else {
   Write-Log "WARN observation_api_skipped script_or_validation_missing validation_run_dir=$ValidationRunDir"

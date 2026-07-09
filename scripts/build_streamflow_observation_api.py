@@ -18,6 +18,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--validation-run-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--shard-size", type=int, default=50)
+    parser.add_argument("--candidate-metrics-csv", type=Path)
+    parser.add_argument("--candidate-manifest-json", type=Path)
+    parser.add_argument("--candidate-skill-classes-csv", type=Path)
+    parser.add_argument("--candidate-metrics-split", default="test")
+    parser.add_argument("--candidate-label", default="Strict obs posttrain candidate")
     return parser.parse_args()
 
 
@@ -48,6 +53,16 @@ def finite_number(value: Any, digits: int = 6) -> float | None:
     if not math.isfinite(number):
         return None
     return round(number, digits)
+
+
+def median(values: list[float]) -> float | None:
+    finite_values = sorted(value for value in values if math.isfinite(value))
+    if not finite_values:
+        return None
+    midpoint = len(finite_values) // 2
+    if len(finite_values) % 2:
+        return finite_values[midpoint]
+    return (finite_values[midpoint - 1] + finite_values[midpoint]) / 2.0
 
 
 def correlation(xs: list[float], ys: list[float]) -> float | None:
@@ -105,6 +120,124 @@ def validation_metrics(rows: list[list[Any]]) -> dict[str, Any]:
     }
 
 
+def candidate_metric_from_row(row: dict[str, str]) -> dict[str, Any]:
+    return {
+        "n": int(float(row["n"])) if row.get("n") else 0,
+        "nse": finite_number(row.get("nse")),
+        "kge": finite_number(row.get("kge")),
+        "maeMmDay": finite_number(row.get("mae_mm_day")),
+        "rmseMmDay": finite_number(row.get("rmse_mm_day")),
+        "coverageP05P95": finite_number(row.get("coverage_p05_p95")),
+    }
+
+
+def load_candidate_skill_classes(path: Path | None) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
+    if not path or not path.exists():
+        return {}, {}
+    by_basin: dict[str, dict[str, Any]] = {}
+    counts: dict[str, int] = defaultdict(int)
+    for row in read_csv(path):
+        basin = row.get("basin")
+        if not basin:
+            continue
+        skill_class = row.get("skill_class") or "unknown"
+        counts[skill_class] += 1
+        by_basin[basin] = {
+            "lead12MeanNse": finite_number(row.get("lead12_mean_nse")),
+            "lead12MinNse": finite_number(row.get("lead12_min_nse")),
+            "lead12Pairs": int(float(row["lead12_pairs"])) if row.get("lead12_pairs") else 0,
+            "lead1Nse": finite_number(row.get("lead1_nse")),
+            "lead2Nse": finite_number(row.get("lead2_nse")),
+            "skillClass": skill_class,
+        }
+    return by_basin, dict(sorted(counts.items()))
+
+
+def load_candidate_metrics(
+    metrics_csv: Path | None,
+    *,
+    manifest_json: Path | None,
+    skill_classes_csv: Path | None,
+    split: str,
+    label: str,
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any] | None]:
+    if not metrics_csv or not metrics_csv.exists():
+        return {}, None
+
+    skill_by_basin, skill_counts = load_candidate_skill_classes(skill_classes_csv)
+    metrics_by_basin: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    metrics_by_lead: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in read_csv(metrics_csv):
+        if row.get("split") != split:
+            continue
+        basin = row.get("basin")
+        lead = row.get("lead_time")
+        if not basin or not lead:
+            continue
+        metric = candidate_metric_from_row(row)
+        metrics_by_basin[basin][str(int(float(lead)))] = metric
+        metrics_by_lead[str(int(float(lead)))].append(metric)
+
+    basin_payload: dict[str, dict[str, Any]] = {}
+    lead12_scores: list[float] = []
+    for basin, by_lead in metrics_by_basin.items():
+        lead12 = [
+            metric["nse"]
+            for lead, metric in by_lead.items()
+            if lead in {"1", "2"} and metric.get("nse") is not None
+        ]
+        lead12_mean = sum(lead12) / len(lead12) if lead12 else None
+        if lead12_mean is not None:
+            lead12_scores.append(lead12_mean)
+        skill = skill_by_basin.get(basin, {})
+        basin_payload[basin] = {
+            "label": label,
+            "split": split,
+            "byLead": dict(sorted(by_lead.items(), key=lambda item: int(item[0]))),
+            "lead12MeanNse": finite_number(skill.get("lead12MeanNse", lead12_mean)),
+            "lead12MinNse": finite_number(skill.get("lead12MinNse", min(lead12) if lead12 else None)),
+            "lead12Pairs": skill.get("lead12Pairs"),
+            "skillClass": skill.get("skillClass"),
+        }
+
+    manifest = read_json(manifest_json) if manifest_json and manifest_json.exists() else {}
+    by_lead_summary = []
+    for lead, rows in sorted(metrics_by_lead.items(), key=lambda item: int(item[0])):
+        nses = [row["nse"] for row in rows if row.get("nse") is not None]
+        by_lead_summary.append(
+            {
+                "leadTime": int(lead),
+                "basins": len(rows),
+                "medianNse": finite_number(median(nses)),
+                "nseGt0": sum(1 for value in nses if value > 0.0),
+                "nseGt04": sum(1 for value in nses if value > 0.4),
+                "nseGt05": sum(1 for value in nses if value > 0.5),
+            }
+        )
+
+    summary = {
+        "label": label,
+        "split": split,
+        "source": str(metrics_csv),
+        "schema": "streamflow-observation-candidate-metrics-v1",
+        "candidateSchema": manifest.get("schema"),
+        "gate": manifest.get("gate"),
+        "calibrationSplit": manifest.get("calibration_split"),
+        "members": manifest.get("members"),
+        "selectionLeads": manifest.get("selection_leads"),
+        "fallbackModel": manifest.get("fallback_model"),
+        "basinCount": len(basin_payload),
+        "lead12MedianNse": finite_number(median(lead12_scores)),
+        "lead12NseGt0": sum(1 for value in lead12_scores if value > 0.0),
+        "lead12NseGt04": sum(1 for value in lead12_scores if value > 0.4),
+        "lead12NseGt05": sum(1 for value in lead12_scores if value > 0.5),
+        "countsBySkillClass": skill_counts,
+        "byLead": by_lead_summary,
+        "contract": "Observed streamflow selected this fixed candidate on calibration splits only; observations are not realtime inference inputs.",
+    }
+    return basin_payload, summary
+
+
 def main() -> None:
     args = parse_args()
     run_dir = args.validation_run_dir
@@ -114,6 +247,13 @@ def main() -> None:
     audit_rows = read_csv(run_dir / "basin_observation_match_audit.csv")
     observation_rows = read_csv_gz(run_dir / "observed_streamflow.csv.gz")
     validation_rows = read_csv_gz(run_dir / "forecast_validation.csv.gz")
+    candidate_by_basin, candidate_summary = load_candidate_metrics(
+        args.candidate_metrics_csv,
+        manifest_json=args.candidate_manifest_json,
+        skill_classes_csv=args.candidate_skill_classes_csv,
+        split=args.candidate_metrics_split,
+        label=args.candidate_label,
+    )
 
     strict_rows = [row for row in audit_rows if row.get("audit_status") == "matched_recent"]
     strict_by_basin = {row["forecast_basin_id"]: row for row in strict_rows}
@@ -161,23 +301,26 @@ def main() -> None:
             lead: validation_metrics(rows)
             for lead, rows in sorted(val_by_basin.get(basin_id, {}).items(), key=lambda item: int(item[0]))
         }
-        basin_rows.append(
-            {
-                "id": basin_id,
-                "source": audit.get("source"),
-                "stationId": audit.get("station_id"),
-                "name": audit.get("gauge_name"),
-                "latestObsDate": audit.get("daily_latest_date"),
-                "obsCount": len(obs_by_basin.get(basin_id, [])),
-                "validationCount": len(all_validation_rows),
-                "metrics": overall_metrics,
-                "byLead": by_lead_metrics,
-                "maeMmDay": overall_metrics["maeMmDay"],
-                "coverageP05P95": overall_metrics["coverageP05P95"],
-                "nse": overall_metrics["nse"],
-                "kge": overall_metrics["kge"],
-            }
-        )
+        basin_payload = {
+            "id": basin_id,
+            "source": audit.get("source"),
+            "stationId": audit.get("station_id"),
+            "name": audit.get("gauge_name"),
+            "latestObsDate": audit.get("daily_latest_date"),
+            "obsCount": len(obs_by_basin.get(basin_id, [])),
+            "validationCount": len(all_validation_rows),
+            "metrics": overall_metrics,
+            "byLead": by_lead_metrics,
+            "maeMmDay": overall_metrics["maeMmDay"],
+            "coverageP05P95": overall_metrics["coverageP05P95"],
+            "nse": overall_metrics["nse"],
+            "kge": overall_metrics["kge"],
+        }
+        candidate = candidate_by_basin.get(basin_id)
+        if candidate:
+            basin_payload["candidateMetrics"] = candidate
+            basin_payload["candidateByLead"] = candidate["byLead"]
+        basin_rows.append(basin_payload)
 
     shard_files: list[str] = []
     basin_shard: dict[str, str] = {}
@@ -218,6 +361,7 @@ def main() -> None:
         "sourceCounts": dict(sorted(source_counts.items())),
         "metrics": metrics_summary.get("overall") or summary.get("validation_metrics") or {},
         "byLead": metrics_summary.get("by_lead", []),
+        "candidateMetrics": candidate_summary,
         "contract": "Observed streamflow is validation-only and is not used as forecast inference input.",
         "files": {
             "index": "index.json",
