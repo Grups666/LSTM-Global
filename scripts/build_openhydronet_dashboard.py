@@ -14,8 +14,10 @@ shapefiles so the Tereon module can render clickable global basin points.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
+import statistics
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dashboard", type=Path, required=True)
     parser.add_argument("--output-freshness", type=Path)
     parser.add_argument("--caravan-nc-dir", type=Path)
+    parser.add_argument("--obs-metrics-csv", type=Path)
+    parser.add_argument("--obs-metrics-split", default="test")
+    parser.add_argument("--obs-metrics-label", default="Strict USGS observed streamflow validation")
     parser.add_argument("--max-lead", type=int, default=7)
     parser.add_argument("--compact", action="store_true", help="Write compact JSON.")
     return parser.parse_args()
@@ -178,12 +183,120 @@ def empty_metrics(max_lead: int) -> dict[str, dict[str, Any]]:
     }
 
 
-def build_payload(static_api_dir: Path, caravan_nc_dir: Path | None, max_lead: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def finite_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def load_obs_metrics(
+    metrics_csv: Path | None,
+    *,
+    split: str,
+    max_lead: int,
+) -> tuple[dict[str, dict[str, dict[str, Any]]], list[dict[str, Any]], int]:
+    if not metrics_csv:
+        return {}, [], 0
+    metrics_by_basin: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    values_by_lead: dict[int, dict[str, list[float]]] = {
+        lead: {"nse": [], "kge": [], "rmse": []}
+        for lead in range(1, max_lead + 1)
+    }
+    basin_ids: set[str] = set()
+    with metrics_csv.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            if str(row.get("split", "")) != split:
+                continue
+            try:
+                lead = int(float(str(row.get("lead_time", "")).strip()))
+            except ValueError:
+                continue
+            if lead < 1 or lead > max_lead:
+                continue
+            basin = str(row.get("basin", "")).strip()
+            if not basin:
+                continue
+            n = int(float(row.get("n", 0) or 0))
+            nse = finite_float(row.get("nse"))
+            kge = finite_float(row.get("kge"))
+            rmse = finite_float(row.get("rmse_mm_day"))
+            coverage = finite_float(row.get("coverage_p05_p95"))
+            metric = {
+                "n": n,
+                "nse": nse,
+                "kge": kge,
+                "rmse": rmse,
+                "coverage": coverage,
+            }
+            metrics_by_basin[basin][str(lead)] = metric
+            basin_ids.add(basin)
+            if nse is not None:
+                values_by_lead[lead]["nse"].append(nse)
+            if kge is not None:
+                values_by_lead[lead]["kge"].append(kge)
+            if rmse is not None:
+                values_by_lead[lead]["rmse"].append(rmse)
+
+    lead_summary = []
+    for lead in range(1, max_lead + 1):
+        values = values_by_lead[lead]
+        lead_summary.append(
+            {
+                "lead": lead,
+                "basinCount": len(values["nse"]),
+                "medianNse": statistics.median(values["nse"]) if values["nse"] else None,
+                "medianKge": statistics.median(values["kge"]) if values["kge"] else None,
+                "medianRmse": statistics.median(values["rmse"]) if values["rmse"] else None,
+            }
+        )
+    return dict(metrics_by_basin), lead_summary, len(basin_ids)
+
+
+def lead12_mean_nse(metrics: dict[str, dict[str, Any]]) -> float | None:
+    values = [
+        metric.get("nse")
+        for lead, metric in metrics.items()
+        if lead in {"1", "2"} and metric.get("nse") is not None
+    ]
+    if not values:
+        return None
+    return float(sum(values) / len(values))
+
+
+def effectiveness_from_metrics(metrics: dict[str, dict[str, Any]]) -> tuple[str, bool]:
+    score = lead12_mean_nse(metrics)
+    if score is None:
+        return "insufficient_data", False
+    if score >= 0.5:
+        return "proven_effective", True
+    if score >= 0.4:
+        return "adapter_candidate", True
+    if score >= 0.0:
+        return "unproven", False
+    return "low_skill", False
+
+
+def build_payload(
+    static_api_dir: Path,
+    caravan_nc_dir: Path | None,
+    max_lead: int,
+    obs_metrics_csv: Path | None = None,
+    obs_metrics_split: str = "test",
+    obs_metrics_label: str = "Strict USGS observed streamflow validation",
+) -> tuple[dict[str, Any], dict[str, Any]]:
     latest = read_json(static_api_dir / "latest.json")
     basins_payload = read_json(static_api_dir / "basins.json")
     basin_ids = [str(item["id"]) for item in basins_payload.get("basins", [])]
     wanted_ids = set(basin_ids)
     coords = load_basin_coords(caravan_nc_dir, wanted_ids)
+    obs_metrics, obs_lead_summary, obs_basin_count = load_obs_metrics(
+        obs_metrics_csv,
+        split=obs_metrics_split,
+        max_lead=max_lead,
+    )
 
     latest_by_basin: dict[str, dict[str, Any]] = defaultdict(dict)
     lead_summary = []
@@ -221,6 +334,9 @@ def build_payload(static_api_dir: Path, caravan_nc_dir: Path | None, max_lead: i
     basin_rows = []
     for basin_id in basin_ids:
         coord = coords.get(basin_id, {})
+        metrics = obs_metrics.get(basin_id, empty_metrics(max_lead))
+        has_obs_metrics = basin_id in obs_metrics
+        effectiveness_status, potential_effective = effectiveness_from_metrics(metrics) if has_obs_metrics else ("unknown", False)
         basin_rows.append(
             {
                 "id": basin_id,
@@ -229,18 +345,19 @@ def build_payload(static_api_dir: Path, caravan_nc_dir: Path | None, max_lead: i
                 "name": coord.get("name") or basin_id,
                 "country": coord.get("country") or "",
                 "station_id": basin_id,
-                "status": "prediction_only",
-                "validationStatus": "prediction_only",
-                "effectivenessStatus": "unknown",
+                "status": "supervised_label_available" if has_obs_metrics else "prediction_only",
+                "validationStatus": "strict_obs_validated" if has_obs_metrics else "prediction_only",
+                "effectivenessStatus": effectiveness_status,
                 "deploymentPolicy": "openhydronet_no_streamflow_input",
-                "potentialEffective": False,
-                "targetedAdapterCandidate": False,
+                "potentialEffective": potential_effective,
+                "targetedAdapterCandidate": effectiveness_status == "adapter_candidate",
                 "hasLatestStateForecast": False,
-                "metrics": empty_metrics(max_lead),
+                "metrics": metrics,
                 "latestForecast": latest_by_basin.get(basin_id, {}),
             }
         )
 
+    validation_summary = obs_lead_summary if obs_lead_summary else lead_summary
     meta = {
         "schemaVersion": "lstm-global-openhydronet-dashboard-v1",
         "model": "Google/FloodHub OpenHydroNet mean_embedding_forecast_lstm",
@@ -250,9 +367,13 @@ def build_payload(static_api_dir: Path, caravan_nc_dir: Path | None, max_lead: i
         "rowCount": latest.get("rowCount"),
         "basinCount": latest.get("basinCount", len(basin_rows)),
         "mappedBasinCount": sum(1 for row in basin_rows if row.get("lat") is not None and row.get("lon") is not None),
-        "predictionOnlyBasinCount": len(basin_rows),
+        "predictionOnlyBasinCount": max(0, len(basin_rows) - obs_basin_count),
         "latestStateForecastBasinCount": latest.get("basinCount", len(basin_rows)),
-        "fineTunedValidatedBasinCount": 0,
+        "fineTunedValidatedBasinCount": obs_basin_count,
+        "obsValidationBasinCount": obs_basin_count,
+        "obsValidationSplit": obs_metrics_split if obs_metrics_csv else None,
+        "obsValidationLabel": obs_metrics_label if obs_metrics_csv else None,
+        "obsMetricsSource": str(obs_metrics_csv) if obs_metrics_csv else None,
         "streamflowInputUsed": latest.get("streamflowInputUsed", False),
         "readiness": latest.get("readiness", {}),
         "inputProductCounts": latest.get("inputProductCounts", {}),
@@ -261,7 +382,7 @@ def build_payload(static_api_dir: Path, caravan_nc_dir: Path | None, max_lead: i
     }
     dashboard = {
         "meta": meta,
-        "leadSummary": lead_summary,
+        "leadSummary": validation_summary,
         "baseLeadSummary": lead_summary,
         "calibratorLeadMetrics": [],
         "basins": basin_rows,
@@ -275,7 +396,14 @@ def build_payload(static_api_dir: Path, caravan_nc_dir: Path | None, max_lead: i
 
 def main() -> int:
     args = parse_args()
-    dashboard, freshness = build_payload(args.static_api_dir, args.caravan_nc_dir, args.max_lead)
+    dashboard, freshness = build_payload(
+        args.static_api_dir,
+        args.caravan_nc_dir,
+        args.max_lead,
+        args.obs_metrics_csv,
+        args.obs_metrics_split,
+        args.obs_metrics_label,
+    )
     write_json(args.output_dashboard, dashboard, compact=args.compact)
     if args.output_freshness:
         write_json(args.output_freshness, freshness, compact=args.compact)
