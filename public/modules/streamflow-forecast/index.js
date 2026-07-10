@@ -78,8 +78,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       }
     }
     try {
-      this.obsSummary = await this.fetchJson(this.resolve("./api/observations/latest.json"));
-      const obsBasins = await this.fetchJson(this.resolve("./api/observations/basins.json"));
+      this.obsSummary = await this.fetchJson(this.resolve("./api/observations/latest.json"), { cache: "no-cache" });
+      const obsBasins = await this.fetchJson(this.resolve("./api/observations/basins.json"), { cache: "no-cache" });
       this.obsBasinMeta = new Map((obsBasins.basins || []).map((basin) => [String(basin.id), basin]));
     } catch (error) {
       console.warn("Observed streamflow validation API unavailable", error);
@@ -278,14 +278,15 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         ${this.renderAccuracyFilterControls()}
         <div class="sf-overview-metrics">
           ${this.metricCard("Forecast basins", this.formatInt(meta.basinCount || this.basins.length))}
-          ${this.metricCard("Strict obs basins", this.formatInt(obs.strictMatchedRecentBasins))}
+          ${this.metricCard("Obs matched", this.formatInt(obs.strictMatchedRecentBasins))}
           ${this.metricCard("Validation rows", this.formatInt(obs.validationRows))}
           ${this.metricCard("Overall NSE", this.formatMetric(obsMetrics.nse, 3))}
           ${this.metricCard("Overall KGE", this.formatMetric(obsMetrics.kge, 3))}
           ${this.metricCard("MAE mm/day", this.formatFlow(obsMetrics.mae_mm_day))}
-          ${this.metricCard("Posttrain basins", this.formatInt(candidate.basinCount))}
+          ${this.metricCard("Eval basins", this.formatInt(candidate.basinCount))}
           ${this.metricCard("L1-2 median NSE", this.formatMetric(candidate.lead12MedianNse, 3))}
-          ${this.metricCard("L1-2 NSE > 0.4", this.formatInt(candidate.lead12NseGt04))}
+          ${this.metricCard("L1-2 NSE >= 0.4", this.formatInt(candidate.lead12NseGt04))}
+          ${this.metricCard("L1-2 NSE >= 0.5", this.formatInt(candidate.lead12NseGt05))}
         </div>
         ${this.renderObservationLeadSummary(obs.byLead || [])}
         ${this.renderCandidateLeadSummary(candidate)}
