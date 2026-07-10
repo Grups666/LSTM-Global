@@ -45,7 +45,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       metric: "nse",
       minNse: -Infinity,
       lead: "all",
-      observedOnly: false
+      observedOnly: true
     };
     this.handleFeatureClick = (payload) => {
       if (payload.layer?.id !== this.layerId || payload.layer?.moduleId !== this.manifest.id) return;
@@ -278,7 +278,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         ${this.renderAccuracyFilterControls()}
         <div class="sf-overview-metrics">
           ${this.metricCard("Forecast basins", this.formatInt(meta.basinCount || this.basins.length))}
-          ${this.metricCard("Obs matched", this.formatInt(obs.strictMatchedRecentBasins))}
+          ${this.metricCard("Obs matched inventory", this.formatInt(obs.strictMatchedRecentBasins))}
           ${this.metricCard("Obs evaluated", this.formatInt(obs.evaluatedRecentBasins || candidate.basinCount))}
           ${this.metricCard("Validation rows", this.formatInt(obs.validationRows))}
           ${this.metricCard("Overall NSE", this.formatMetric(obsMetrics.nse, 3))}
@@ -286,8 +286,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("MAE mm/day", this.formatFlow(obsMetrics.mae_mm_day))}
           ${this.metricCard("L1-2 median NSE", this.formatMetric(candidate.lead12MedianNse, 3))}
           ${this.metricCard("L1-2 NSE > 0", this.formatInt(candidate.lead12NseGt0))}
-          ${this.metricCard("L1-2 NSE > 0.4", this.formatInt(candidate.lead12NseGt04))}
-          ${this.metricCard("L1-2 NSE > 0.5", this.formatInt(candidate.lead12NseGt05))}
+          ${this.metricCard("Posttrain L1-2 NSE > 0.4", this.formatInt(candidate.lead12NseGt04))}
+          ${this.metricCard("Posttrain L1-2 NSE > 0.5", this.formatInt(candidate.lead12NseGt05))}
         </div>
         ${this.renderObservationLeadSummary(obs.byLead || [])}
         ${this.renderCandidateLeadSummary(candidate)}
@@ -404,7 +404,12 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       const selected = String(this.accuracyFilter.lead) === lead ? "selected" : "";
       return `<option value="${lead}" ${selected}>${lead === "all" ? "All leads" : `Lead ${lead}`}</option>`;
     }).join("");
-    const threshold = Number.isFinite(Number(this.accuracyFilter.minNse)) ? Number(this.accuracyFilter.minNse) : -1;
+    const thresholdActive = Number.isFinite(Number(this.accuracyFilter.minNse));
+    const threshold = thresholdActive ? Number(this.accuracyFilter.minNse) : -1;
+    const thresholdValue = thresholdActive ? this.formatMetric(threshold, 2) : "";
+    const filterStatus = thresholdActive
+      ? `${this.accuracyFilter.metric.toUpperCase()} > ${this.formatMetric(threshold, 2)}`
+      : "No skill threshold";
     return `
       <div class="sf-filter-panel">
         <div class="sf-filter-title">Reliability filter</div>
@@ -422,7 +427,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           </label>
           <label class="sf-filter-field">
             <span>Minimum</span>
-            <input data-sf-filter-threshold type="number" min="-1" max="1" step="0.05" value="${this.formatMetric(threshold, 2)}" aria-label="Minimum reliability threshold">
+            <input data-sf-filter-threshold type="number" min="-1" max="1" step="0.05" value="${thresholdValue}" placeholder="All" aria-label="Minimum reliability threshold">
           </label>
           <label class="sf-filter-field sf-filter-slider">
             <span>Threshold</span>
@@ -430,7 +435,10 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           </label>
         </div>
         <label class="sf-filter-check"><input type="checkbox" data-sf-observed-only ${this.accuracyFilter.observedOnly ? "checked" : ""}> Show strict observed matches only</label>
-        <div class="sf-filter-count">${this.formatInt(count)} forecast basins visible; ${this.formatInt(observedCount)} observed matches visible after filtering</div>
+        <div class="sf-filter-row">
+          <button class="sf-filter" type="button" data-sf-clear-threshold>All observed</button>
+          <span class="sf-filter-count">${filterStatus}; ${this.formatInt(count)} forecast basins visible; ${this.formatInt(observedCount)} observed matches visible after filtering</span>
+        </div>
       </div>
     `;
   }
@@ -586,6 +594,14 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     });
     root.querySelectorAll("[data-sf-filter-range]").forEach((input) => {
       input.addEventListener("input", () => applyThreshold(input.value));
+    });
+    root.querySelectorAll("[data-sf-clear-threshold]").forEach((button) => {
+      button.addEventListener("click", () => {
+        this.accuracyFilter.minNse = -Infinity;
+        this.accuracyFilter.observedOnly = true;
+        this.showOverview();
+        this.app.draw?.();
+      });
     });
     root.querySelectorAll("[data-sf-observed-only]").forEach((input) => {
       input.addEventListener("change", () => {
