@@ -10,7 +10,7 @@
   [string]$DeployKey = "D:\SSH\OpenHydroNet_FloodHub_Operational\secrets\lstm_global_deploy_ed25519",
   [string]$PagesWorktree = "D:\SSH\LSTM-Global-gh-pages-publish",
   [string]$HistoryRoot = "D:\SSH\OpenHydroNet_FloodHub_Operational\outputs\api\history",
-  [string]$CandidateBundleManifestJson = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\strict_obs_climatology_rescue_latest.json",
+  [string]$CandidateBundleManifestJson = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\strict_obs_final_rescue_latest.json",
   [string]$ValidationRunDir = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\validation\public_streamflow_daily\latest",
   [string]$CandidateMetricsCsv = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\gate_published_clim095_margin005_writepred_20260710\gate_published_clim095_m005_lead12\basin_lead_metrics.csv",
   [string]$CandidateManifestJson = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\gate_published_clim095_margin005_writepred_20260710\gate_published_clim095_m005_lead12\manifest.json",
