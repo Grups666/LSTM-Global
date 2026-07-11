@@ -2507,11 +2507,12 @@
 
         // Other layers
         layers.filter(l => !['basemap', 'outlines-basins', 'outlines-countries'].includes(l.id)).forEach(l => {
+          const removable = l.metadata?.removable !== false;
           html += `
             <div class="layer-item" data-id="${l.id}">
               <input type="checkbox" class="layer-checkbox" ${l.visible ? 'checked' : ''}>
               <span class="layer-name">${l.name}</span>
-              <div class="layer-actions"><button class="layer-btn layer-remove" title="Remove layer" aria-label="Remove layer"></button></div>
+              ${removable ? '<div class="layer-actions"><button class="layer-btn layer-remove" title="Remove layer" aria-label="Remove layer"></button></div>' : ''}
             </div>
           `;
         });
@@ -2550,6 +2551,8 @@
         // Other layer items
         el.querySelectorAll('.layer-item').forEach(item => {
           const lid = item.dataset.id;
+          const layer = this.layerManager.getLayer(lid);
+          const clickAction = layer?.metadata?.clickAction || 'toggle';
           const cb = item.querySelector('.layer-checkbox');
           if (cb) {
             cb.onclick = (e) => e.stopPropagation();
@@ -2572,6 +2575,12 @@
           }
           item.onclick = (e) => {
             if (e.target.closest('.layer-actions')) return;
+            if (clickAction === 'show') {
+              if (cb) cb.checked = true;
+              this.layerManager.setVisibility(lid, true);
+              this.draw();
+              return;
+            }
             const checked = !cb?.checked;
             if (cb) cb.checked = checked;
             if (lid === 'outlines-group') {
