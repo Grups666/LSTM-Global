@@ -43,7 +43,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.overviewModal = null;
     this.accuracyFilter = {
       metric: "nse",
-      minNse: -Infinity,
+      minNse: 0,
       lead: "all",
       observedOnly: true
     };
@@ -192,7 +192,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       id: this.overviewLayerId,
       name: "Overview",
       type: "overlay",
-      visible: false,
+      visible: true,
       interactive: false,
       moduleId: this.manifest.id,
       metadata: { removable: false },
@@ -288,8 +288,6 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const obs = this.obsSummary || {};
     const obsMetrics = obs.metrics || {};
     const obsSkill = this.obsSkillSummary("nse", this.accuracyFilter.lead);
-    const layer = this.app.layerManager.getLayer?.(this.overviewLayerId);
-    if (layer && !layer.visible) return;
     this.ensureOverviewModal();
     this.overviewModal.querySelector(".sf-overview-body").innerHTML = `
       <section>
@@ -301,7 +299,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-overview-metrics">
           ${this.metricCard("Forecast basins", this.formatInt(meta.basinCount || this.basins.length))}
           ${this.metricCard("Obs matched inventory", this.formatInt(obs.strictMatchedRecentBasins))}
-          ${this.metricCard("Obs evaluated", this.formatInt(obs.evaluatedRecentBasins || candidate.basinCount))}
+          ${this.metricCard("Obs evaluated", this.formatInt(obs.evaluatedRecentBasins || obs.strictMatchedRecentBasins))}
           ${this.metricCard("Validation rows", this.formatInt(obs.validationRows))}
           ${this.metricCard("Overall NSE", this.formatMetric(obsMetrics.nse, 3))}
           ${this.metricCard("Overall KGE", this.formatMetric(obsMetrics.kge, 3))}

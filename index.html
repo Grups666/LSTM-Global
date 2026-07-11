@@ -2552,6 +2552,7 @@
           const lid = item.dataset.id;
           const cb = item.querySelector('.layer-checkbox');
           if (cb) {
+            cb.onclick = (e) => e.stopPropagation();
             cb.onchange = (e) => {
               if (lid === 'outlines-group') {
                 this.layerManager.setVisibility('basemap', e.target.checked);
@@ -2563,11 +2564,23 @@
           }
           const removeBtn = item.querySelector('.layer-remove');
           if (removeBtn) {
-            removeBtn.onclick = () => {
+            removeBtn.onclick = (e) => {
+              e.stopPropagation();
               this.layerManager.removeLayer(lid);
               this.draw();
             };
           }
+          item.onclick = (e) => {
+            if (e.target.closest('.layer-actions')) return;
+            const checked = !cb?.checked;
+            if (cb) cb.checked = checked;
+            if (lid === 'outlines-group') {
+              this.layerManager.setVisibility('basemap', checked);
+            } else {
+              this.layerManager.setVisibility(lid, checked);
+            }
+            this.draw();
+          };
         });
 
         // Sublayers
