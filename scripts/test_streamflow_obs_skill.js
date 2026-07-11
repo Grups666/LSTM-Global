@@ -13,8 +13,10 @@ const context = { globalThis: {}, console };
 context.globalThis = context;
 context.window = context;
 vm.createContext(context);
-vm.runInContext(fs.readFileSync(helperPath, "utf8"), context, { filename: helperPath });
-vm.runInContext(fs.readFileSync(modulePath, "utf8"), context, { filename: modulePath });
+const helperSource = fs.readFileSync(helperPath, "utf8");
+const moduleSource = fs.readFileSync(modulePath, "utf8");
+vm.runInContext(helperSource, context, { filename: helperPath });
+vm.runInContext(moduleSource, context, { filename: modulePath });
 
 const skill = context.StreamflowForecastObsSkill;
 if (!skill) throw new Error("StreamflowForecastObsSkill was not registered");
@@ -53,6 +55,15 @@ if (skill.filterLabel("nse", "1") !== "L1 obs NSE") {
 }
 
 const module = new ForecastModule({});
+if (module.accuracyFilter.minNse !== 0) {
+  throw new Error(`Default overview NSE threshold must be >0, got ${module.accuracyFilter.minNse}`);
+}
+if (!moduleSource.includes("visible: true")) {
+  throw new Error("Overview layer should be visible by default so the overview opens on load");
+}
+if (moduleSource.includes("candidate.basinCount")) {
+  throw new Error("Overview render must not reference undefined candidate.basinCount");
+}
 if (Number.isFinite(module.chartNumber(null))) {
   throw new Error("Null observed values must not be coerced to zero in charts");
 }
