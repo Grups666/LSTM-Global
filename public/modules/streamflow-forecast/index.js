@@ -195,7 +195,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       visible: true,
       interactive: false,
       moduleId: this.manifest.id,
-      metadata: { removable: false },
+      metadata: { removable: false, clickAction: "show" },
       renderer: () => {}
     });
     this.app.updateLayerList?.();
@@ -409,10 +409,18 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const range = this.obsSummary?.startDate && this.obsSummary?.endDate
       ? `${this.obsSummary.startDate} to ${this.obsSummary.endDate}`
       : "latest 30-day window";
+    const sourceCounts = Object.entries(this.obsSummary?.sourceCounts || {})
+      .filter(([, count]) => Number(count) > 0)
+      .map(([source, count]) => `${this.escape(source)} ${this.formatInt(count)}`)
+      .join(", ");
+    const sourceText = sourceCounts
+      ? `Current strict public observation matches by source: ${sourceCounts}.`
+      : "Current strict public observation source coverage is still limited.";
     return `
       <div class="sf-overview-note">
         <div class="sf-overview-note-title">Observed inventory vs skill subset</div>
         <span>${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${this.escape(range)}.</span>
+        <span>${sourceText} The full forecast product remains global; the default NSE > 0 view is an observed-skill subset.</span>
         <span>${visibleObs} matched basins remain visible after the current recent-observation filter; this is a skill-filtered subset, not the observed-data inventory. Observations are validation-only and never feed inference.</span>
       </div>
     `;
@@ -457,7 +465,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         </div>
         <label class="sf-filter-check"><input type="checkbox" data-sf-observed-only ${this.accuracyFilter.observedOnly ? "checked" : ""}> Show strict observed matches only</label>
         <div class="sf-filter-row">
-          <button class="sf-filter" type="button" data-sf-clear-threshold>All observed</button>
+          <button class="sf-filter" type="button" data-sf-clear-threshold>All matched obs</button>
+          <button class="sf-filter" type="button" data-sf-show-all-forecasts>All forecasts</button>
           <span class="sf-filter-count">${filterStatus}; ${this.formatInt(count)} forecast basins visible; ${this.formatInt(observedCount)} observed matches visible after filtering. The filter uses only the latest public obs-vs-forecast validation window. The strict observed inventory remains ${this.formatInt(this.obsSummary?.strictMatchedRecentBasins)}.</span>
         </div>
       </div>
@@ -620,6 +629,14 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       button.addEventListener("click", () => {
         this.accuracyFilter.minNse = -Infinity;
         this.accuracyFilter.observedOnly = true;
+        this.showOverview();
+        this.app.draw?.();
+      });
+    });
+    root.querySelectorAll("[data-sf-show-all-forecasts]").forEach((button) => {
+      button.addEventListener("click", () => {
+        this.accuracyFilter.minNse = -Infinity;
+        this.accuracyFilter.observedOnly = false;
         this.showOverview();
         this.app.draw?.();
       });
