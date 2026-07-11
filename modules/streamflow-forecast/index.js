@@ -968,7 +968,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const x = (i) => margin.left + (dates.length <= 1 ? 0 : (i / (dates.length - 1)) * plotWidth);
     const y = (value) => margin.top + (1 - ((value - min) / span)) * plotHeight;
     const point = (key, i) => {
-      const value = Number(series[key]?.[i]);
+      const value = this.chartNumber(series[key]?.[i]);
       return Number.isFinite(value) && value >= 0 ? `${x(i).toFixed(1)},${y(value).toFixed(1)}` : null;
     };
     const polyline = (key) => dates.map((_, i) => point(key, i)).filter(Boolean).join(" ");
@@ -1073,7 +1073,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       obsDot.setAttribute("cy", Number.isFinite(obs) ? y(obs).toFixed(1) : "-20");
     }
     this.setHoverText(shell, ".sf-hover-label-p50", Number.isFinite(p50) ? `P50 ${this.formatFlow(p50)}` : "", labelX, Number.isFinite(p50) ? y(p50) - 8 : -20, dateAnchor);
-    this.setHoverText(shell, ".sf-hover-label-obs", Number.isFinite(obs) ? `Obs ${this.formatFlow(obs)}` : "", labelX, Number.isFinite(obs) ? y(obs) + 14 : -20, dateAnchor);
+    this.setHoverText(shell, ".sf-hover-label-obs", Number.isFinite(obs) ? `Obs ${this.formatFlow(obs)}` : "Obs 无", labelX, Number.isFinite(obs) ? y(obs) + 14 : yAnchor + 14, dateAnchor);
     this.setHoverText(shell, ".sf-hover-label-band", Number.isFinite(p05) || Number.isFinite(p95) ? `P05-P95 ${this.formatFlow(p05)}-${this.formatFlow(p95)}` : "", labelX, Math.max(margin.top + 12, yAnchor - 22), dateAnchor);
     this.setHoverText(shell, ".sf-hover-label-date", series.valid_date[index] || "", labelX, height - margin.bottom - 6, dateAnchor);
     shell.classList.add("is-hovering");
@@ -1096,8 +1096,14 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   nonnegative(value) {
-    const number = Number(value);
+    const number = this.chartNumber(value);
     return Number.isFinite(number) && number >= 0 ? number : NaN;
+  }
+
+  chartNumber(value) {
+    if (value === null || value === undefined || value === "") return NaN;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : NaN;
   }
 
   correlation(xs, ys) {
@@ -1121,7 +1127,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const values = [];
     for (const key of ["obs", "p05", "p50", "p95"]) {
       for (const raw of series?.[key] || []) {
-        const value = Number(raw);
+        const value = this.chartNumber(raw);
         if (Number.isFinite(value) && value >= 0) values.push(value);
       }
     }
