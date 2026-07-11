@@ -1,18 +1,25 @@
-const fs = require("fs");
-const path = require("path");
-const vm = require("vm");
+import fs from "node:fs";
+import path from "node:path";
+import vm from "node:vm";
+import { fileURLToPath } from "node:url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const helperPath = path.join(root, "public", "modules", "streamflow-forecast", "obs-skill.js");
+const modulePath = path.join(root, "public", "modules", "streamflow-forecast", "index.js");
 const dataPath = path.join(root, "public", "modules", "streamflow-forecast", "api", "observations", "basins.json");
 
-const context = { globalThis: {} };
+const context = { globalThis: {}, console };
 context.globalThis = context;
+context.window = context;
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(helperPath, "utf8"), context, { filename: helperPath });
+vm.runInContext(fs.readFileSync(modulePath, "utf8"), context, { filename: modulePath });
 
 const skill = context.StreamflowForecastObsSkill;
 if (!skill) throw new Error("StreamflowForecastObsSkill was not registered");
+const ForecastModule = context.StreamflowForecastModule;
+if (!ForecastModule) throw new Error("StreamflowForecastModule was not registered");
 
 const payload = JSON.parse(fs.readFileSync(dataPath, "utf8"));
 const basin = payload.basins.find((item) => item.id === "hysets_09253000");
@@ -45,10 +52,23 @@ if (skill.filterLabel("nse", "1") !== "L1 obs NSE") {
   throw new Error("Unexpected L1 filter label");
 }
 
+const module = new ForecastModule({});
+if (Number.isFinite(module.chartNumber(null))) {
+  throw new Error("Null observed values must not be coerced to zero in charts");
+}
+if (Number.isFinite(module.nonnegative(null))) {
+  throw new Error("Missing observed values must not produce a zero-valued hydrograph point");
+}
+const chartValues = module.chartValues({ obs: [null, 0.25], p05: [0], p50: [1], p95: [2] });
+if (chartValues.includes(0) === false || chartValues.includes(0.25) === false || chartValues.length !== 4) {
+  throw new Error(`Unexpected chart value extraction: ${JSON.stringify(chartValues)}`);
+}
+
 console.log(JSON.stringify({
   basin: basin.id,
   obsLead1,
   candidateLead1,
   lead1Gt04: summary.gt04,
-  label: skill.filterLabel("nse", "1")
+  label: skill.filterLabel("nse", "1"),
+  nullObsChartNumberFinite: Number.isFinite(module.chartNumber(null))
 }, null, 2));
