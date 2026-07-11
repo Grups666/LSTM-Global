@@ -61,6 +61,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   async onLoad() {
+    await this.loadHelperScript("./obs-skill.js", "StreamflowForecastObsSkill");
     const dataset = this.manifest.datasets?.find((item) => item.id === "streamflow-forecast-dashboard");
     this.datasetsByMode.set("coverage", {
       label: "Coverage",
@@ -143,6 +144,26 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const response = await fetch(url, options);
     if (!response.ok) throw new Error(`Failed to load ${url}: ${response.status}`);
     return response.json();
+  }
+
+  async loadHelperScript(path, globalName) {
+    if (window[globalName]) return;
+    await new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      const version = this.manifest.assetVersion || this.manifest.version || "current";
+      const url = this.resolveEntrySibling(path);
+      script.src = `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(version)}`;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error(`Failed to load streamflow helper: ${script.src}`));
+      document.body.appendChild(script);
+    });
+  }
+
+  resolveEntrySibling(path) {
+    if (/^https?:\/\//i.test(path) || path.startsWith("/")) return path;
+    const entry = this.manifest.entry || "./index.js";
+    const entryDir = entry.includes("/") ? entry.slice(0, entry.lastIndexOf("/") + 1) : "./";
+    return this.resolve(`${entryDir}${path.replace(/^\.\//, "")}`);
   }
 
   historyResolve(path) {
@@ -266,7 +287,6 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const summary = Array.isArray(this.data.leadSummary) ? this.data.leadSummary : [];
     const obs = this.obsSummary || {};
     const obsMetrics = obs.metrics || {};
-    const candidate = obs.candidateMetrics || {};
     const obsSkill = this.obsSkillSummary("nse", this.accuracyFilter.lead);
     const layer = this.app.layerManager.getLayer?.(this.overviewLayerId);
     if (layer && !layer.visible) return;
@@ -292,7 +312,6 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard(`${obsSkill.label} NSE > 0.5`, this.formatInt(obsSkill.gt05))}
         </div>
         ${this.renderObservationLeadSummary(obs.byLead || [])}
-        ${this.renderCandidateLeadSummary(candidate)}
       </section>
       <section>
         <h3>Validation contract</h3>
@@ -513,7 +532,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   overviewText() {
     const obs = this.obsSummary || {};
     const matched = this.formatInt(obs.strictMatchedRecentBasins);
-    const evaluated = this.formatInt(obs.evaluatedRecentBasins || obs.candidateMetrics?.basinCount);
+    const evaluated = this.formatInt(obs.evaluatedRecentBasins);
     const total = this.formatInt(obs.totalForecastBasins);
     const range = obs.startDate && obs.endDate ? `${obs.startDate} to ${obs.endDate}` : "the latest 30-day window";
     return `${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${range}; ${evaluated} matched basins have recent obs-vs-forecast validation metrics in the current 30-day window. Counts such as NSE > 0.4 are recent observed-skill subsets, not observed-data coverage. The reliability filter only hides lower-skill basins on the map; it does not change the observed-data inventory.`;
@@ -770,21 +789,13 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   filterMetricValue(basinId) {
     const meta = this.obsBasinMeta.get(String(basinId));
-    if (!meta) return NaN;
-    const metric = this.accuracyFilter.metric === "kge" ? "kge" : "nse";
-    const lead = String(this.accuracyFilter.lead);
-    if (lead === "all") {
-      return Number(meta.metrics?.[metric] ?? meta[metric]);
-    }
-    return Number(meta.byLead?.[lead]?.[metric]);
+    return window.StreamflowForecastObsSkill.metricValue(meta, this.accuracyFilter.metric, this.accuracyFilter.lead);
   }
 
   filterMetricSummary(basinId) {
-    const metric = this.accuracyFilter.metric === "kge" ? "KGE" : "NSE";
-    const lead = String(this.accuracyFilter.lead);
     return {
       value: this.filterMetricValue(basinId),
-      label: lead === "all" ? `30-day obs ${metric}` : `L${lead} obs ${metric}`
+      label: window.StreamflowForecastObsSkill.filterLabel(this.accuracyFilter.metric, this.accuracyFilter.lead)
     };
   }
 
@@ -793,24 +804,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
   }
 
   obsSkillSummary(metricKey = "nse", lead = "all") {
-    const values = [];
-    const metric = metricKey === "kge" ? "kge" : "nse";
-    const leadKey = String(lead);
-    for (const meta of this.obsBasinMeta.values()) {
-      const raw = leadKey === "all" ? meta.metrics?.[metric] ?? meta[metric] : meta.byLead?.[leadKey]?.[metric];
-      const value = Number(raw);
-      if (Number.isFinite(value)) values.push(value);
-    }
-    values.sort((a, b) => a - b);
-    const median = values.length ? values[Math.floor((values.length - 1) / 2)] : NaN;
-    return {
-      label: leadKey === "all" ? "30-day obs" : `L${leadKey} obs`,
-      count: values.length,
-      median,
-      gt0: values.reduce((count, value) => count + (value > 0 ? 1 : 0), 0),
-      gt04: values.reduce((count, value) => count + (value > 0.4 ? 1 : 0), 0),
-      gt05: values.reduce((count, value) => count + (value > 0.5 ? 1 : 0), 0)
-    };
+    return window.StreamflowForecastObsSkill.summarize(this.obsBasinMeta.values(), metricKey, lead);
   }
 
   skillClassLabel(skillClass) {
