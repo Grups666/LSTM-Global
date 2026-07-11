@@ -201,7 +201,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         const targetedAdapter = Boolean(basin.targetedAdapterCandidate);
         const radius = selected ? 6.8 : hovered ? 5.6 : 3.9;
         ctx.globalAlpha = selected ? 0.98 : basin.status === "prediction_only" ? 0.72 : 0.84;
-        ctx.fillStyle = this.skillColor(this.metricValue(basin, "nse"));
+        ctx.fillStyle = this.skillColor(this.mapMetricValue(basin));
         ctx.strokeStyle = targetedAdapter ? "#a855f7" : selected ? "#0f172a" : hovered ? "#1d4ed8" : "rgba(15,23,42,0.30)";
         ctx.lineWidth = targetedAdapter ? (selected || hovered ? 2.4 : 1.5) : selected ? 2.2 : hovered ? 1.8 : 0.7;
 
@@ -323,6 +323,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const obsState = this.obsState(basin.id);
     const obsMetrics = this.obsMetricsForLead(basin, this.selectedLead);
     const candidateMetrics = this.candidateMetricsForLead(basin, this.selectedLead);
+    const filterMetrics = this.filterMetricSummary(basin.id);
     const content = `
       <div class="sf-basin-panel">
         ${this.renderModeButtons()}
@@ -335,6 +336,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Obs pairs", this.formatInt(obsMetrics?.n))}
           ${this.metricCard("Posttrain NSE", this.formatMetric(candidateMetrics?.nse, 3))}
           ${this.metricCard("Posttrain KGE", this.formatMetric(candidateMetrics?.kge, 3))}
+          ${this.metricCard(filterMetrics.label, this.formatMetric(filterMetrics.value, 3))}
           ${this.metricCard("Skill class", this.skillClassLabel(candidateMetrics?.skillClass))}
           ${this.metricCard("Latest P50", this.formatFlow(latest?.p50))}
           ${this.metricCard("P05-P95", `${this.formatFlow(latest?.p05)} - ${this.formatFlow(latest?.p95)}`)}
@@ -779,6 +781,23 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     return Number(meta.byLead?.[lead]?.[metric]);
   }
 
+  filterMetricSummary(basinId) {
+    const metric = this.accuracyFilter.metric === "kge" ? "KGE" : "NSE";
+    const lead = String(this.accuracyFilter.lead);
+    return {
+      value: this.filterMetricValue(basinId),
+      label: lead === "all" ? `L1-2 candidate ${metric}` : `L${lead} candidate ${metric}`
+    };
+  }
+
+  mapMetricValue(basin) {
+    const threshold = Number(this.accuracyFilter.minNse);
+    if (Number.isFinite(threshold)) {
+      return this.filterMetricValue(basin.id);
+    }
+    return this.metricValue(basin, "nse");
+  }
+
   skillClassLabel(skillClass) {
     const labels = {
       strong_ge_0_5: ">= 0.5",
@@ -833,13 +852,13 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   ensureLegend() {
     this.app.registerLegend?.(this.legendId, {
-      title: "Lead NSE",
+      title: "Lead / Filter NSE",
       html: `
         <div class="sf-legend">
           <div class="sf-gradient"></div>
           <div class="sf-legend-ticks"><span>0 or below</span><span>0.4</span><span>0.8+</span></div>
           <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>OpenHydroNet basin forecast</div>
-          <div class="sf-legend-note">Input product availability is encoded with masks for each forecast row.</div>
+          <div class="sf-legend-note">When a reliability threshold is active, color follows the same metric used by the filter; otherwise it shows selected-lead obs NSE.</div>
         </div>
       `
     });
