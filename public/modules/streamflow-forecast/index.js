@@ -275,6 +275,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <p class="sf-overview-lead">
           ${this.escape(this.overviewText())}
         </p>
+        ${this.renderOverviewNote()}
         ${this.renderAccuracyFilterControls()}
         <div class="sf-overview-metrics">
           ${this.metricCard("Forecast basins", this.formatInt(meta.basinCount || this.basins.length))}
@@ -286,8 +287,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("MAE mm/day", this.formatFlow(obsMetrics.mae_mm_day))}
           ${this.metricCard("L1-2 median NSE", this.formatMetric(candidate.lead12MedianNse, 3))}
           ${this.metricCard("L1-2 NSE > 0", this.formatInt(candidate.lead12NseGt0))}
-          ${this.metricCard("Posttrain L1-2 NSE > 0.4", this.formatInt(candidate.lead12NseGt04))}
-          ${this.metricCard("Posttrain L1-2 NSE > 0.5", this.formatInt(candidate.lead12NseGt05))}
+          ${this.metricCard("Skill-filtered NSE > 0.4", this.formatInt(candidate.lead12NseGt04))}
+          ${this.metricCard("Skill-filtered NSE > 0.5", this.formatInt(candidate.lead12NseGt05))}
         </div>
         ${this.renderObservationLeadSummary(obs.byLead || [])}
         ${this.renderCandidateLeadSummary(candidate)}
@@ -390,7 +391,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       : "latest 30-day window";
     return `
       <div class="sf-overview-note">
-        <div class="sf-overview-note-title">Observed validation overview</div>
+        <div class="sf-overview-note-title">Observed inventory vs skill subset</div>
         <span>${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${this.escape(range)}.</span>
         <span>${visibleObs} matched basins remain visible after the current reliability filter; this is a skill-filtered subset, not the observed-data inventory. Observations are validation-only and never feed inference.</span>
       </div>
@@ -412,7 +413,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       : "No skill threshold";
     return `
       <div class="sf-filter-panel">
-        <div class="sf-filter-title">Reliability filter</div>
+        <div class="sf-filter-title">Reliability filter, not observed inventory</div>
         <div class="sf-filter-grid">
           <label class="sf-filter-field">
             <span>Metric</span>
@@ -437,7 +438,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <label class="sf-filter-check"><input type="checkbox" data-sf-observed-only ${this.accuracyFilter.observedOnly ? "checked" : ""}> Show strict observed matches only</label>
         <div class="sf-filter-row">
           <button class="sf-filter" type="button" data-sf-clear-threshold>All observed</button>
-          <span class="sf-filter-count">${filterStatus}; ${this.formatInt(count)} forecast basins visible; ${this.formatInt(observedCount)} observed matches visible after filtering</span>
+          <span class="sf-filter-count">${filterStatus}; ${this.formatInt(count)} forecast basins visible; ${this.formatInt(observedCount)} observed matches visible after filtering. The strict observed inventory remains ${this.formatInt(this.obsSummary?.strictMatchedRecentBasins)}.</span>
         </div>
       </div>
     `;
@@ -512,7 +513,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const evaluated = this.formatInt(obs.evaluatedRecentBasins || obs.candidateMetrics?.basinCount);
     const total = this.formatInt(obs.totalForecastBasins);
     const range = obs.startDate && obs.endDate ? `${obs.startDate} to ${obs.endDate}` : "the latest 30-day window";
-    return `${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${range}; ${evaluated} matched basins have lead1-2 candidate metrics in the current 30-day window. The reliability filter only hides lower-skill basins on the map; it does not change the observed-data inventory.`;
+    return `${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${range}; ${evaluated} matched basins have lead1-2 candidate metrics in the current 30-day window. Counts such as NSE > 0.4 are skill-filtered subsets, not observed-data coverage. The reliability filter only hides lower-skill basins on the map; it does not change the observed-data inventory.`;
   }
 
   ensureOverviewModal() {
