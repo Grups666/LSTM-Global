@@ -267,6 +267,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const obs = this.obsSummary || {};
     const obsMetrics = obs.metrics || {};
     const candidate = obs.candidateMetrics || {};
+    const obsSkill = this.obsSkillSummary("nse", this.accuracyFilter.lead);
     const layer = this.app.layerManager.getLayer?.(this.overviewLayerId);
     if (layer && !layer.visible) return;
     this.ensureOverviewModal();
@@ -285,10 +286,10 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           ${this.metricCard("Overall NSE", this.formatMetric(obsMetrics.nse, 3))}
           ${this.metricCard("Overall KGE", this.formatMetric(obsMetrics.kge, 3))}
           ${this.metricCard("MAE mm/day", this.formatFlow(obsMetrics.mae_mm_day))}
-          ${this.metricCard("L1-2 median NSE", this.formatMetric(candidate.lead12MedianNse, 3))}
-          ${this.metricCard("L1-2 NSE > 0", this.formatInt(candidate.lead12NseGt0))}
-          ${this.metricCard("Skill-filtered NSE > 0.4", this.formatInt(candidate.lead12NseGt04))}
-          ${this.metricCard("Skill-filtered NSE > 0.5", this.formatInt(candidate.lead12NseGt05))}
+          ${this.metricCard(`${obsSkill.label} median NSE`, this.formatMetric(obsSkill.median, 3))}
+          ${this.metricCard(`${obsSkill.label} NSE > 0`, this.formatInt(obsSkill.gt0))}
+          ${this.metricCard(`${obsSkill.label} NSE > 0.4`, this.formatInt(obsSkill.gt04))}
+          ${this.metricCard(`${obsSkill.label} NSE > 0.5`, this.formatInt(obsSkill.gt05))}
         </div>
         ${this.renderObservationLeadSummary(obs.byLead || [])}
         ${this.renderCandidateLeadSummary(candidate)}
@@ -395,7 +396,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       <div class="sf-overview-note">
         <div class="sf-overview-note-title">Observed inventory vs skill subset</div>
         <span>${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${this.escape(range)}.</span>
-        <span>${visibleObs} matched basins remain visible after the current reliability filter; this is a skill-filtered subset, not the observed-data inventory. Observations are validation-only and never feed inference.</span>
+        <span>${visibleObs} matched basins remain visible after the current recent-observation filter; this is a skill-filtered subset, not the observed-data inventory. Observations are validation-only and never feed inference.</span>
       </div>
     `;
   }
@@ -415,11 +416,11 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       : "No skill threshold";
     return `
       <div class="sf-filter-panel">
-        <div class="sf-filter-title">Reliability filter, not observed inventory</div>
+        <div class="sf-filter-title">Recent observed-skill filter, not observed inventory</div>
         <div class="sf-filter-grid">
           <label class="sf-filter-field">
             <span>Metric</span>
-            <select data-sf-filter-metric aria-label="Reliability metric">
+            <select data-sf-filter-metric aria-label="Recent observed-skill metric">
               <option value="nse"${this.accuracyFilter.metric === "nse" ? " selected" : ""}>NSE</option>
               <option value="kge"${this.accuracyFilter.metric === "kge" ? " selected" : ""}>KGE</option>
             </select>
@@ -430,17 +431,17 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
           </label>
           <label class="sf-filter-field">
             <span>Minimum</span>
-            <input data-sf-filter-threshold type="number" min="-1" max="1" step="0.05" value="${thresholdValue}" placeholder="All" aria-label="Minimum reliability threshold">
+            <input data-sf-filter-threshold type="number" min="-1" max="1" step="0.05" value="${thresholdValue}" placeholder="All" aria-label="Minimum recent observed-skill threshold">
           </label>
           <label class="sf-filter-field sf-filter-slider">
             <span>Threshold</span>
-            <input data-sf-filter-range type="range" min="-1" max="1" step="0.05" value="${this.formatMetric(threshold, 2)}" aria-label="Minimum reliability threshold slider">
+            <input data-sf-filter-range type="range" min="-1" max="1" step="0.05" value="${this.formatMetric(threshold, 2)}" aria-label="Minimum recent observed-skill threshold slider">
           </label>
         </div>
         <label class="sf-filter-check"><input type="checkbox" data-sf-observed-only ${this.accuracyFilter.observedOnly ? "checked" : ""}> Show strict observed matches only</label>
         <div class="sf-filter-row">
           <button class="sf-filter" type="button" data-sf-clear-threshold>All observed</button>
-          <span class="sf-filter-count">${filterStatus}; ${this.formatInt(count)} forecast basins visible; ${this.formatInt(observedCount)} observed matches visible after filtering. The strict observed inventory remains ${this.formatInt(this.obsSummary?.strictMatchedRecentBasins)}.</span>
+          <span class="sf-filter-count">${filterStatus}; ${this.formatInt(count)} forecast basins visible; ${this.formatInt(observedCount)} observed matches visible after filtering. The filter uses only the latest public obs-vs-forecast validation window. The strict observed inventory remains ${this.formatInt(this.obsSummary?.strictMatchedRecentBasins)}.</span>
         </div>
       </div>
     `;
@@ -515,7 +516,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const evaluated = this.formatInt(obs.evaluatedRecentBasins || obs.candidateMetrics?.basinCount);
     const total = this.formatInt(obs.totalForecastBasins);
     const range = obs.startDate && obs.endDate ? `${obs.startDate} to ${obs.endDate}` : "the latest 30-day window";
-    return `${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${range}; ${evaluated} matched basins have lead1-2 candidate metrics in the current 30-day window. Counts such as NSE > 0.4 are skill-filtered subsets, not observed-data coverage. The reliability filter only hides lower-skill basins on the map; it does not change the observed-data inventory.`;
+    return `${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${range}; ${evaluated} matched basins have recent obs-vs-forecast validation metrics in the current 30-day window. Counts such as NSE > 0.4 are recent observed-skill subsets, not observed-data coverage. The reliability filter only hides lower-skill basins on the map; it does not change the observed-data inventory.`;
   }
 
   ensureOverviewModal() {
@@ -773,11 +774,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const metric = this.accuracyFilter.metric === "kge" ? "kge" : "nse";
     const lead = String(this.accuracyFilter.lead);
     if (lead === "all") {
-      const candidateValue = metric === "nse" ? Number(meta.candidateMetrics?.lead12MeanNse) : NaN;
-      return Number.isFinite(candidateValue) ? candidateValue : Number(meta[metric]);
+      return Number(meta.metrics?.[metric] ?? meta[metric]);
     }
-    const candidateValue = Number(meta.candidateMetrics?.byLead?.[lead]?.[metric] ?? meta.candidateByLead?.[lead]?.[metric]);
-    if (Number.isFinite(candidateValue)) return candidateValue;
     return Number(meta.byLead?.[lead]?.[metric]);
   }
 
@@ -786,16 +784,33 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const lead = String(this.accuracyFilter.lead);
     return {
       value: this.filterMetricValue(basinId),
-      label: lead === "all" ? `L1-2 candidate ${metric}` : `L${lead} candidate ${metric}`
+      label: lead === "all" ? `30-day obs ${metric}` : `L${lead} obs ${metric}`
     };
   }
 
   mapMetricValue(basin) {
-    const threshold = Number(this.accuracyFilter.minNse);
-    if (Number.isFinite(threshold)) {
-      return this.filterMetricValue(basin.id);
+    return this.filterMetricValue(basin.id);
+  }
+
+  obsSkillSummary(metricKey = "nse", lead = "all") {
+    const values = [];
+    const metric = metricKey === "kge" ? "kge" : "nse";
+    const leadKey = String(lead);
+    for (const meta of this.obsBasinMeta.values()) {
+      const raw = leadKey === "all" ? meta.metrics?.[metric] ?? meta[metric] : meta.byLead?.[leadKey]?.[metric];
+      const value = Number(raw);
+      if (Number.isFinite(value)) values.push(value);
     }
-    return this.metricValue(basin, "nse");
+    values.sort((a, b) => a - b);
+    const median = values.length ? values[Math.floor((values.length - 1) / 2)] : NaN;
+    return {
+      label: leadKey === "all" ? "30-day obs" : `L${leadKey} obs`,
+      count: values.length,
+      median,
+      gt0: values.reduce((count, value) => count + (value > 0 ? 1 : 0), 0),
+      gt04: values.reduce((count, value) => count + (value > 0.4 ? 1 : 0), 0),
+      gt05: values.reduce((count, value) => count + (value > 0.5 ? 1 : 0), 0)
+    };
   }
 
   skillClassLabel(skillClass) {
@@ -852,13 +867,13 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   ensureLegend() {
     this.app.registerLegend?.(this.legendId, {
-      title: "Lead / Filter NSE",
+      title: "Recent Obs NSE",
       html: `
         <div class="sf-legend">
           <div class="sf-gradient"></div>
           <div class="sf-legend-ticks"><span>0 or below</span><span>0.4</span><span>0.8+</span></div>
           <div class="sf-symbol-row"><span class="sf-dot-symbol"></span>OpenHydroNet basin forecast</div>
-          <div class="sf-legend-note">When a reliability threshold is active, color follows the same metric used by the filter; otherwise it shows selected-lead obs NSE.</div>
+          <div class="sf-legend-note">Colors and overview filters use the latest public obs-vs-forecast validation window, not offline training or test metrics.</div>
         </div>
       `
     });
