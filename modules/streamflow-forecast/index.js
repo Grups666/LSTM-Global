@@ -97,7 +97,9 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
 
   setDataPayload(data) {
     this.data = data;
-    const nextHistoryVersion = this.data?.meta?.latestIssueDate || this.data?.meta?.generatedAt || "current";
+    const dataVersion = this.data?.meta?.latestIssueDate || this.data?.meta?.generatedAt || "current";
+    const assetVersion = this.manifest.assetVersion || this.manifest.version || "";
+    const nextHistoryVersion = [dataVersion, assetVersion].filter(Boolean).join("-");
     if (this.historyVersionToken && this.historyVersionToken !== nextHistoryVersion) {
       this.historyIndex = null;
       this.historyIndexPromise = null;
