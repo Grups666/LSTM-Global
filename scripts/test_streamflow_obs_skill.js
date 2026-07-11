@@ -18,6 +18,13 @@ const payload = JSON.parse(fs.readFileSync(dataPath, "utf8"));
 const basin = payload.basins.find((item) => item.id === "hysets_09253000");
 if (!basin) throw new Error("Expected fixture basin hysets_09253000 in observations/basins.json");
 
+basin.candidateMetrics = {
+  byLead: {
+    "1": {
+      nse: 0.65
+    }
+  }
+};
 const obsLead1 = skill.metricValue(basin, "nse", "1");
 const candidateLead1 = Number(basin.candidateMetrics?.byLead?.["1"]?.nse);
 if (!(obsLead1 < 0)) {
