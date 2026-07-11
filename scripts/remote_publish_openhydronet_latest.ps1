@@ -17,9 +17,18 @@
   [string]$CandidateSkillClassesCsv = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\gate_published_clim095_margin005_writepred_20260710\gate_published_clim095_m005_lead12_basin_skill_classes.csv",
   [string]$CandidateLabel = "Strict obs climatology-blend rescue gate lead1-2",
   [string]$CandidateMetricsSplit = "test",
+  [string]$StrictObsProjectRoot = "D:\SSH\Hydrological_Forecasting_DL",
+  [string]$StrictObsOverlayWorkRoot = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\daily_history_overlay",
+  [string]$StrictObsAdaptiveClimatologyBasinLead = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\climatology_rescue_20260710_192325\adaptive\adaptive_final_alpha_default1_m002_shrink60\climatology_basin_lead.csv",
+  [string]$StrictObsAdaptiveAlphaTable = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\climatology_rescue_20260710_192325\adaptive\adaptive_final_alpha_default1_m002_shrink60\adaptive_alpha_table.csv",
+  [string]$StrictObsAdaptiveGateSelection = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\climatology_rescue_20260710_192325\adaptive_gate\gate_selection.csv",
+  [double]$StrictObsSelectionMargin = 0.05,
+  [string]$StrictObsOverlayLabel = "adaptive_margin_0p05_live",
   [int]$HistoryDays = 30,
   [switch]$SkipPull,
-  [switch]$Push
+  [switch]$Push,
+  [switch]$DisableStrictObsHistoryOverlay,
+  [switch]$RequireStrictObsHistoryOverlay
 )
 
 $ErrorActionPreference = "Stop"
@@ -135,9 +144,77 @@ Write-Log "build_history_api"
   --shard-size 50
 if ($LASTEXITCODE -ne 0) { throw "history API builder failed" }
 
+$ObservationValidationRunDir = $ValidationRunDir
+if (-not $DisableStrictObsHistoryOverlay) {
+  $StrictOverlayScript = Join-Path $StrictObsProjectRoot "scripts\run_strict_obs_history_overlay_pipeline.py"
+  $StrictReuseValidationScript = Join-Path $StrictObsProjectRoot "scripts\reuse_public_streamflow_validation_for_api.py"
+  $StrictRequiredInputs = @(
+    $StrictOverlayScript,
+    $StrictObsAdaptiveClimatologyBasinLead,
+    $StrictObsAdaptiveAlphaTable,
+    $StrictObsAdaptiveGateSelection
+  )
+  $StrictMissingInputs = @($StrictRequiredInputs | Where-Object { -not (Test-Path $_) })
+  if ($StrictMissingInputs.Count -gt 0) {
+    $msg = "strict_obs_history_overlay_missing_inputs=" + ($StrictMissingInputs -join ";")
+    if ($RequireStrictObsHistoryOverlay) { throw $msg }
+    Write-Log ("WARN " + $msg)
+  } else {
+    $StrictIssueWorkRoot = Join-Path $StrictObsOverlayWorkRoot $LatestJson.issueDate
+    $StrictWorkDir = Join-Path $StrictIssueWorkRoot "work"
+    $StrictOverlayApi = Join-Path $StrictIssueWorkRoot "api_overlay"
+    if (Test-Path -LiteralPath $StrictIssueWorkRoot) {
+      Remove-Item -LiteralPath $StrictIssueWorkRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $StrictIssueWorkRoot | Out-Null
+    Write-Log "strict_obs_history_overlay_start work_dir=$StrictWorkDir"
+    & $PythonExe $StrictOverlayScript `
+      --api-root $ApiDir `
+      --output-api-root $StrictOverlayApi `
+      --work-dir $StrictWorkDir `
+      --adaptive-climatology-basin-lead $StrictObsAdaptiveClimatologyBasinLead `
+      --adaptive-alpha-table $StrictObsAdaptiveAlphaTable `
+      --adaptive-gate-selection $StrictObsAdaptiveGateSelection `
+      --selection-margin $StrictObsSelectionMargin `
+      --candidate-label $StrictObsOverlayLabel `
+      --leads "1,2" `
+      --progress-jsonl (Join-Path $StrictIssueWorkRoot "progress.jsonl")
+    if ($LASTEXITCODE -ne 0) { throw "strict obs history overlay pipeline failed" }
+
+    $ApiHistoryDir = Join-Path $ApiDir "history"
+    if (Test-Path -LiteralPath $ApiHistoryDir) {
+      Remove-Item -LiteralPath $ApiHistoryDir -Recurse -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $StrictOverlayApi "history") -Destination $ApiHistoryDir -Recurse -Force
+    $OverlaySummary = Join-Path $StrictOverlayApi "history_overlay_summary.json"
+    if (Test-Path -LiteralPath $OverlaySummary) {
+      Copy-Item -LiteralPath $OverlaySummary -Destination (Join-Path $ApiDir "history_overlay_summary.json") -Force
+    }
+    Write-Log "strict_obs_history_overlay_applied label=$StrictObsOverlayLabel"
+
+    if ((Test-Path $StrictReuseValidationScript) -and (Test-Path (Join-Path $ValidationRunDir "observed_streamflow.csv.gz"))) {
+      $StrictValidationRunDir = Join-Path $StrictIssueWorkRoot "validation_reuse_obs"
+      Write-Log "strict_obs_overlay_validation_reuse_start source=$ValidationRunDir"
+      & $PythonExe $StrictReuseValidationScript `
+        --source-validation-run-dir $ValidationRunDir `
+        --api-root $ApiDir `
+        --output-run-dir $StrictValidationRunDir
+      if ($LASTEXITCODE -ne 0) { throw "strict obs overlay validation reuse failed" }
+      $ObservationValidationRunDir = $StrictValidationRunDir
+      Write-Log "strict_obs_overlay_validation_reuse_done run_dir=$ObservationValidationRunDir"
+    } else {
+      $msg = "strict_obs_overlay_validation_reuse_skipped script_or_observations_missing validation_run_dir=$ValidationRunDir"
+      if ($RequireStrictObsHistoryOverlay) { throw $msg }
+      Write-Log ("WARN " + $msg)
+    }
+  }
+} else {
+  Write-Log "strict_obs_history_overlay_disabled=True"
+}
+
 $ObservationScript = Join-Path $PagesRepo "scripts\build_streamflow_observation_api.py"
-if ((Test-Path $ObservationScript) -and (Test-Path (Join-Path $ValidationRunDir "summary.json"))) {
-Write-Log "build_observation_api validation_run_dir=$ValidationRunDir"
+if ((Test-Path $ObservationScript) -and (Test-Path (Join-Path $ObservationValidationRunDir "summary.json"))) {
+Write-Log "build_observation_api validation_run_dir=$ObservationValidationRunDir"
 if (Test-Path $CandidateBundleManifestJson) {
   Write-Log "candidate_bundle_manifest=$CandidateBundleManifestJson"
   $CandidateBundle = Get-Content -LiteralPath $CandidateBundleManifestJson -Raw | ConvertFrom-Json
@@ -155,7 +232,7 @@ if (Test-Path $CandidateBundleManifestJson) {
   }
 }
 $ObservationArgs = @(
-    "--validation-run-dir", $ValidationRunDir,
+    "--validation-run-dir", $ObservationValidationRunDir,
     "--output-dir", (Join-Path $ApiDir "observations"),
     "--shard-size", "50"
   )
@@ -180,7 +257,7 @@ $ObservationArgs = @(
   & $PythonExe $ObservationScript @ObservationArgs
   if ($LASTEXITCODE -ne 0) { throw "observation API builder failed" }
 } else {
-  Write-Log "WARN observation_api_skipped script_or_validation_missing validation_run_dir=$ValidationRunDir"
+  Write-Log "WARN observation_api_skipped script_or_validation_missing validation_run_dir=$ObservationValidationRunDir"
 }
 
 Invoke-Git -C $PagesRepo config user.name "openhydronet-bot"
