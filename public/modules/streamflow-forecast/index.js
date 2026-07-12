@@ -92,6 +92,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.ensureStyles();
     this.ensureLegend();
     this.openOverview();
+    window.requestAnimationFrame?.(() => this.openOverview());
     this.app.draw?.();
   }
 
@@ -197,7 +198,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       visible: true,
       interactive: false,
       moduleId: this.manifest.id,
-      metadata: { removable: false, clickAction: "show" },
+      metadata: { removable: false, clickAction: "show", onShow: () => this.showOverview() },
       renderer: () => {}
     });
     this.app.updateLayerList?.();
@@ -321,6 +322,9 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <p>
           Current public observations come from USGS daily mean discharge and cover ${this.escape(obs.startDate || "pending")} to ${this.escape(obs.endDate || "pending")}. Forecast inputs remain GFS forcing, static basin attributes, and product availability masks.
         </p>
+        <p>
+          Because the current strict public observation inventory is USGS-only, the default NSE &gt; 0 skill-filtered view is concentrated in the United States. Use All forecasts to inspect the full global forecast product.
+        </p>
       </section>
       <section>
         <h3>Forecast product</h3>
@@ -433,6 +437,7 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
         <div class="sf-overview-note-title">Observed inventory vs skill subset</div>
         <span>${matched} of ${total} forecast basins have strict public observed-streamflow matches for ${this.escape(range)}.</span>
         <span>${sourceText} The full forecast product remains global; the default NSE > 0 view is an observed-skill subset.</span>
+        <span>The current strict matched source is USGS daily streamflow, so the default filtered points are expected to be in the United States until additional non-US gauges pass the same correspondence audit.</span>
         <span>${visibleObs} matched basins remain visible after the current recent-observation filter; this is a skill-filtered subset, not the observed-data inventory. Observations are validation-only and never feed inference.</span>
       </div>
     `;

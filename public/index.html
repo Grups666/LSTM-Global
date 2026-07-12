@@ -137,6 +137,7 @@
         padding: 8px 12px;
         border-radius: 6px;
         cursor: pointer;
+        user-select: none;
         display: flex;
         align-items: center;
         gap: 8px;
@@ -246,6 +247,8 @@
         align-items: center;
         gap: 8px;
         padding: 8px 12px;
+        cursor: pointer;
+        user-select: none;
       }
       .layer-sublayer:hover { background: #f1f5f9; }
       .layer-expandable.expanded + .layer-sublayers.map-display-options { display: flex; }
@@ -2509,7 +2512,7 @@
         layers.filter(l => !['basemap', 'outlines-basins', 'outlines-countries'].includes(l.id)).forEach(l => {
           const removable = l.metadata?.removable !== false;
           html += `
-            <div class="layer-item" data-id="${l.id}">
+            <div class="layer-item" data-id="${l.id}" role="button" tabindex="0" aria-pressed="${l.visible ? 'true' : 'false'}">
               <input type="checkbox" class="layer-checkbox" ${l.visible ? 'checked' : ''}>
               <span class="layer-name">${l.name}</span>
               ${removable ? '<div class="layer-actions"><button class="layer-btn layer-remove" title="Remove layer" aria-label="Remove layer"></button></div>' : ''}
@@ -2558,6 +2561,9 @@
             if (clickAction === 'show') {
               if (cb) cb.checked = true;
               this.layerManager.setVisibility(lid, true);
+              if (typeof layer?.metadata?.onShow === 'function') {
+                layer.metadata.onShow();
+              }
               this.draw();
               this.updateLayerList();
               return;
@@ -2586,6 +2592,11 @@
             const checked = !cb?.checked;
             if (cb) cb.checked = checked;
             applyLayerVisibility(checked);
+          };
+          item.onkeydown = (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            item.click();
           };
         });
 
