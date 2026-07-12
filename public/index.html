@@ -2554,16 +2554,24 @@
           const layer = this.layerManager.getLayer(lid);
           const clickAction = layer?.metadata?.clickAction || 'toggle';
           const cb = item.querySelector('.layer-checkbox');
+          const applyLayerVisibility = (checked) => {
+            if (clickAction === 'show') {
+              if (cb) cb.checked = true;
+              this.layerManager.setVisibility(lid, true);
+              this.draw();
+              this.updateLayerList();
+              return;
+            }
+            if (lid === 'outlines-group') {
+              this.layerManager.setVisibility('basemap', checked);
+            } else {
+              this.layerManager.setVisibility(lid, checked);
+            }
+            this.draw();
+          };
           if (cb) {
             cb.onclick = (e) => e.stopPropagation();
-            cb.onchange = (e) => {
-              if (lid === 'outlines-group') {
-                this.layerManager.setVisibility('basemap', e.target.checked);
-              } else {
-                this.layerManager.setVisibility(lid, e.target.checked);
-              }
-              this.draw();
-            };
+            cb.onchange = (e) => applyLayerVisibility(e.target.checked);
           }
           const removeBtn = item.querySelector('.layer-remove');
           if (removeBtn) {
@@ -2575,20 +2583,9 @@
           }
           item.onclick = (e) => {
             if (e.target.closest('.layer-actions')) return;
-            if (clickAction === 'show') {
-              if (cb) cb.checked = true;
-              this.layerManager.setVisibility(lid, true);
-              this.draw();
-              return;
-            }
             const checked = !cb?.checked;
             if (cb) cb.checked = checked;
-            if (lid === 'outlines-group') {
-              this.layerManager.setVisibility('basemap', checked);
-            } else {
-              this.layerManager.setVisibility(lid, checked);
-            }
-            this.draw();
+            applyLayerVisibility(checked);
           };
         });
 
