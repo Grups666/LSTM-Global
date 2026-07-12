@@ -86,12 +86,12 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
       console.warn("Observed streamflow validation API unavailable", error);
     }
     this.setDataPayload(this.datasetsByMode.get(this.datasetMode).data);
+    Foundation.eventBus.on(Foundation.Events.FEATURE_CLICK, this.handleFeatureClick);
+    Foundation.eventBus.on(Foundation.Events.LAYER_TOGGLE, this.handleLayerToggle);
     this.addLayer();
     this.ensureStyles();
     this.ensureLegend();
-    this.showOverview();
-    Foundation.eventBus.on(Foundation.Events.FEATURE_CLICK, this.handleFeatureClick);
-    Foundation.eventBus.on(Foundation.Events.LAYER_TOGGLE, this.handleLayerToggle);
+    this.openOverview();
     this.app.draw?.();
   }
 
@@ -332,6 +332,16 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     `;
     this.bindAccuracyFilterControls();
     this.overviewModal.classList.add("visible");
+  }
+
+  openOverview() {
+    const layer = this.app.layerManager.getLayer(this.overviewLayerId);
+    if (layer && !layer.visible) {
+      this.app.layerManager.setVisibility(this.overviewLayerId, true);
+    } else {
+      this.showOverview();
+    }
+    this.app.updateLayerList?.();
   }
 
   showInspector(basin) {
