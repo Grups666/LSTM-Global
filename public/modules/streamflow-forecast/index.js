@@ -92,7 +92,11 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     this.ensureStyles();
     this.ensureLegend();
     this.openOverview();
-    window.requestAnimationFrame?.(() => this.openOverview());
+    const scheduleOverviewOpen = () => this.openOverview();
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(scheduleOverviewOpen);
+    }
+    window.setTimeout?.(scheduleOverviewOpen, 0);
     this.app.draw?.();
   }
 
@@ -342,9 +346,8 @@ window.StreamflowForecastModule = class StreamflowForecastModule {
     const layer = this.app.layerManager.getLayer(this.overviewLayerId);
     if (layer && !layer.visible) {
       this.app.layerManager.setVisibility(this.overviewLayerId, true);
-    } else {
-      this.showOverview();
     }
+    this.showOverview();
     this.app.updateLayerList?.();
   }
 

@@ -8,6 +8,8 @@ const root = path.resolve(__dirname, "..");
 const helperPath = path.join(root, "public", "modules", "streamflow-forecast", "obs-skill.js");
 const modulePath = path.join(root, "public", "modules", "streamflow-forecast", "index.js");
 const dataPath = path.join(root, "public", "modules", "streamflow-forecast", "api", "observations", "basins.json");
+const rootManifestPath = path.join(root, "module.json");
+const publicManifestPath = path.join(root, "public", "modules", "streamflow-forecast", "module.json");
 
 const context = { globalThis: {}, console };
 context.globalThis = context;
@@ -24,6 +26,11 @@ const ForecastModule = context.StreamflowForecastModule;
 if (!ForecastModule) throw new Error("StreamflowForecastModule was not registered");
 
 const payload = JSON.parse(fs.readFileSync(dataPath, "utf8"));
+const rootManifest = JSON.parse(fs.readFileSync(rootManifestPath, "utf8"));
+const publicManifest = JSON.parse(fs.readFileSync(publicManifestPath, "utf8"));
+if (rootManifest.assetVersion !== publicManifest.assetVersion) {
+  throw new Error(`Root/public module assetVersion mismatch: ${rootManifest.assetVersion} !== ${publicManifest.assetVersion}`);
+}
 const basin = payload.basins.find((item) => item.id === "hysets_09253000");
 if (!basin) throw new Error("Expected fixture basin hysets_09253000 in observations/basins.json");
 
@@ -60,6 +67,12 @@ if (module.accuracyFilter.minNse !== 0) {
 }
 if (!moduleSource.includes("visible: true")) {
   throw new Error("Overview layer should be visible by default so the overview opens on load");
+}
+if (!moduleSource.includes("window.setTimeout?.(scheduleOverviewOpen, 0)")) {
+  throw new Error("Overview should be reopened after module/list initialization so it appears on page load");
+}
+if (!fs.readFileSync(path.join(root, "public", "index.html"), "utf8").includes("data-click-action=\"${clickAction}\"")) {
+  throw new Error("Layer rows should expose click action so show-only rows use full-row activation");
 }
 if (moduleSource.includes("candidate.basinCount")) {
   throw new Error("Overview render must not reference undefined candidate.basinCount");

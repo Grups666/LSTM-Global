@@ -2511,8 +2511,9 @@
         // Other layers
         layers.filter(l => !['basemap', 'outlines-basins', 'outlines-countries'].includes(l.id)).forEach(l => {
           const removable = l.metadata?.removable !== false;
+          const clickAction = l.metadata?.clickAction || 'toggle';
           html += `
-            <div class="layer-item" data-id="${l.id}" role="button" tabindex="0" aria-pressed="${l.visible ? 'true' : 'false'}">
+            <div class="layer-item" data-id="${l.id}" data-click-action="${clickAction}" role="button" tabindex="0" aria-pressed="${l.visible ? 'true' : 'false'}">
               <input type="checkbox" class="layer-checkbox" ${l.visible ? 'checked' : ''}>
               <span class="layer-name">${l.name}</span>
               ${removable ? '<div class="layer-actions"><button class="layer-btn layer-remove" title="Remove layer" aria-label="Remove layer"></button></div>' : ''}
@@ -2576,8 +2577,17 @@
             this.draw();
           };
           if (cb) {
-            cb.onclick = (e) => e.stopPropagation();
-            cb.onchange = (e) => applyLayerVisibility(e.target.checked);
+            cb.onclick = (e) => {
+              e.stopPropagation();
+              if (clickAction === 'show') {
+                e.preventDefault();
+                cb.checked = true;
+                applyLayerVisibility(true);
+              }
+            };
+            cb.onchange = (e) => {
+              if (clickAction !== 'show') applyLayerVisibility(e.target.checked);
+            };
           }
           const removeBtn = item.querySelector('.layer-remove');
           if (removeBtn) {
@@ -2589,7 +2599,7 @@
           }
           item.onclick = (e) => {
             if (e.target.closest('.layer-actions')) return;
-            const checked = !cb?.checked;
+            const checked = clickAction === 'show' ? true : !cb?.checked;
             if (cb) cb.checked = checked;
             applyLayerVisibility(checked);
           };
