@@ -24,6 +24,8 @@
   [string]$StrictObsAdaptiveGateSelection = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\climatology_rescue_20260710_192325\adaptive_gate\gate_selection.csv",
   [double]$StrictObsSelectionMargin = 0.05,
   [string]$StrictObsOverlayLabel = "adaptive_margin_0p05_live",
+  [string]$StrictObsBasinleadBundleJson = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\strict_obs_basinlead_publish_latest.json",
+  [int]$StrictObsBasinleadMaxIssueLagDays = 2,
   [string]$StrictObsBasinleadFallbackPredictions = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\source_expansion_live_inference_20260711\fixed_blend_alpha0p8\predictions.csv.gz",
   [string]$StrictObsBasinleadCandidatePredictions = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\source_expansion_live_inference_20260711\basinlead_alpha_candidate_fit10_default0p8_validltissue_20260712\predictions.csv.gz",
   [double]$StrictObsBasinleadMinImprovement = -0.05,
@@ -156,14 +158,56 @@ $ObservationValidationRunDir = $ValidationRunDir
 $StrictObsBasinleadApplied = $false
 if (-not $DisableStrictObsBasinleadGate) {
   $StrictBasinleadScript = Join-Path $StrictObsProjectRoot "scripts\run_strict_obs_basinlead_gate_overlay_pipeline.py"
-  $StrictBasinleadRequiredInputs = @(
-    $StrictBasinleadScript,
-    $StrictObsBasinleadFallbackPredictions,
-    $StrictObsBasinleadCandidatePredictions,
-    (Join-Path $ValidationRunDir "forecast_validation.csv.gz"),
-    (Join-Path $ValidationRunDir "observed_streamflow.csv.gz")
-  )
-  $StrictBasinleadMissingInputs = @($StrictBasinleadRequiredInputs | Where-Object { -not (Test-Path $_) })
+  $StrictBasinleadResolver = Join-Path $StrictObsProjectRoot "scripts\resolve_strict_obs_basinlead_publish_bundle.py"
+  $StrictBasinleadResolverAttempted = $false
+  $StrictBasinleadBundleReady = $true
+  if (Test-Path -LiteralPath $StrictBasinleadResolver) {
+    $StrictBasinleadResolverAttempted = $true
+    $StrictBasinleadBundleReady = $false
+    $StrictResolvedDir = Join-Path $StrictObsOverlayWorkRoot "resolved"
+    New-Item -ItemType Directory -Force -Path $StrictResolvedDir | Out-Null
+    $StrictResolvedBundle = Join-Path $StrictResolvedDir ("basinlead_bundle_" + $LatestJson.issueDate + ".json")
+    Write-Log "strict_obs_basinlead_resolve_start expected_issue=$($LatestJson.issueDate) max_lag_days=$StrictObsBasinleadMaxIssueLagDays"
+    & $PythonExe $StrictBasinleadResolver `
+      --root (Join-Path $StrictObsProjectRoot "local\outputs\strict_obs_posttrain") `
+      --expected-issue-date $LatestJson.issueDate `
+      --max-issue-lag-days $StrictObsBasinleadMaxIssueLagDays `
+      --output-json $StrictResolvedBundle `
+      --allow-unresolved
+    if ($LASTEXITCODE -ne 0) { throw "strict obs basinlead bundle resolver failed" }
+    if (Test-Path -LiteralPath $StrictResolvedBundle) {
+      Copy-Item -LiteralPath $StrictResolvedBundle -Destination $StrictObsBasinleadBundleJson -Force
+      $StrictBundle = Get-Content -LiteralPath $StrictResolvedBundle -Raw | ConvertFrom-Json
+      if ($StrictBundle.resolved -eq $true) {
+        $StrictObsBasinleadFallbackPredictions = [string]$StrictBundle.fallback_predictions
+        $StrictObsBasinleadCandidatePredictions = [string]$StrictBundle.candidate_predictions
+        if ($null -ne $StrictBundle.candidate_label) { $StrictObsBasinleadLabel = [string]$StrictBundle.candidate_label }
+        if ($null -ne $StrictBundle.gate.min_improvement) { $StrictObsBasinleadMinImprovement = [double]$StrictBundle.gate.min_improvement }
+        if ($null -ne $StrictBundle.gate.protect_fallback_nse_lte) { $StrictObsBasinleadProtectFallbackNseLte = [double]$StrictBundle.gate.protect_fallback_nse_lte }
+        if ($null -ne $StrictBundle.gate.min_candidate_nse) { $StrictObsBasinleadMinCandidateNse = [double]$StrictBundle.gate.min_candidate_nse }
+        $StrictBasinleadBundleReady = $true
+        Write-Log "strict_obs_basinlead_resolved bundle=$StrictResolvedBundle issue_date_max=$($StrictBundle.issue_date_max) issue_lag_days=$($StrictBundle.issue_lag_days) label=$StrictObsBasinleadLabel"
+      } else {
+        $msg = "strict_obs_basinlead_bundle_unresolved=" + (($StrictBundle.blockers | ForEach-Object { [string]$_ }) -join ";")
+        if ($RequireStrictObsBasinleadGate) { throw $msg }
+        Write-Log ("WARN " + $msg)
+      }
+    }
+  } else {
+    Write-Log "WARN strict_obs_basinlead_resolver_missing=$StrictBasinleadResolver"
+  }
+  if ($StrictBasinleadResolverAttempted -and (-not $StrictBasinleadBundleReady)) {
+    $StrictBasinleadMissingInputs = @("resolved_strict_obs_basinlead_publish_bundle")
+  } else {
+    $StrictBasinleadRequiredInputs = @(
+      $StrictBasinleadScript,
+      $StrictObsBasinleadFallbackPredictions,
+      $StrictObsBasinleadCandidatePredictions,
+      (Join-Path $ValidationRunDir "forecast_validation.csv.gz"),
+      (Join-Path $ValidationRunDir "observed_streamflow.csv.gz")
+    )
+    $StrictBasinleadMissingInputs = @($StrictBasinleadRequiredInputs | Where-Object { -not (Test-Path $_) })
+  }
   if ($StrictBasinleadMissingInputs.Count -gt 0) {
     $msg = "strict_obs_basinlead_gate_missing_inputs=" + ($StrictBasinleadMissingInputs -join ";")
     if ($RequireStrictObsBasinleadGate) { throw $msg }
