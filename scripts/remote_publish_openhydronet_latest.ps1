@@ -24,6 +24,14 @@
   [string]$StrictObsAdaptiveGateSelection = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\climatology_rescue_20260710_192325\adaptive_gate\gate_selection.csv",
   [double]$StrictObsSelectionMargin = 0.05,
   [string]$StrictObsOverlayLabel = "adaptive_margin_0p05_live",
+  [string]$StrictObsBasinleadFallbackPredictions = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\source_expansion_live_inference_20260711\fixed_blend_alpha0p8\predictions.csv.gz",
+  [string]$StrictObsBasinleadCandidatePredictions = "D:\SSH\Hydrological_Forecasting_DL\local\outputs\strict_obs_posttrain\source_expansion_live_inference_20260711\basinlead_alpha_candidate_fit10_default0p8_validltissue_20260712\predictions.csv.gz",
+  [double]$StrictObsBasinleadMinImprovement = -0.05,
+  [double]$StrictObsBasinleadProtectFallbackNseLte = 0.8,
+  [double]$StrictObsBasinleadMinCandidateNse = 0.2,
+  [string]$StrictObsBasinleadLabel = "sourceexp_basinlead_gate_protect0p8_marginm0p05_mincand0p2",
+  [switch]$DisableStrictObsBasinleadGate,
+  [switch]$RequireStrictObsBasinleadGate,
   [int]$HistoryDays = 30,
   [switch]$SkipPull,
   [switch]$Push,
@@ -145,7 +153,78 @@ Write-Log "build_history_api"
 if ($LASTEXITCODE -ne 0) { throw "history API builder failed" }
 
 $ObservationValidationRunDir = $ValidationRunDir
-if (-not $DisableStrictObsHistoryOverlay) {
+$StrictObsBasinleadApplied = $false
+if (-not $DisableStrictObsBasinleadGate) {
+  $StrictBasinleadScript = Join-Path $StrictObsProjectRoot "scripts\run_strict_obs_basinlead_gate_overlay_pipeline.py"
+  $StrictBasinleadRequiredInputs = @(
+    $StrictBasinleadScript,
+    $StrictObsBasinleadFallbackPredictions,
+    $StrictObsBasinleadCandidatePredictions,
+    (Join-Path $ValidationRunDir "forecast_validation.csv.gz"),
+    (Join-Path $ValidationRunDir "observed_streamflow.csv.gz")
+  )
+  $StrictBasinleadMissingInputs = @($StrictBasinleadRequiredInputs | Where-Object { -not (Test-Path $_) })
+  if ($StrictBasinleadMissingInputs.Count -gt 0) {
+    $msg = "strict_obs_basinlead_gate_missing_inputs=" + ($StrictBasinleadMissingInputs -join ";")
+    if ($RequireStrictObsBasinleadGate) { throw $msg }
+    Write-Log ("WARN " + $msg)
+  } else {
+    $StrictIssueWorkRoot = Join-Path $StrictObsOverlayWorkRoot $LatestJson.issueDate
+    $StrictWorkDir = Join-Path $StrictIssueWorkRoot "basinlead_work"
+    $StrictOverlayApi = Join-Path $StrictIssueWorkRoot "basinlead_api_overlay"
+    if (Test-Path -LiteralPath $StrictIssueWorkRoot) {
+      Remove-Item -LiteralPath $StrictIssueWorkRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $StrictIssueWorkRoot | Out-Null
+    Write-Log "strict_obs_basinlead_gate_start work_dir=$StrictWorkDir"
+    & $PythonExe $StrictBasinleadScript `
+      --public-api-root $ApiDir `
+      --source-validation-run-dir $ValidationRunDir `
+      --validation-csv-gz (Join-Path $ValidationRunDir "forecast_validation.csv.gz") `
+      --output-api-root $StrictOverlayApi `
+      --work-dir $StrictWorkDir `
+      --fallback-predictions $StrictObsBasinleadFallbackPredictions `
+      --candidate-predictions $StrictObsBasinleadCandidatePredictions `
+      --leads "1,2" `
+      --min-count 4 `
+      --min-improvement $StrictObsBasinleadMinImprovement `
+      --protect-fallback-nse-lte $StrictObsBasinleadProtectFallbackNseLte `
+      --min-candidate-nse $StrictObsBasinleadMinCandidateNse `
+      --fallback-name "published_alpha0p8" `
+      --candidate-name "basinlead_alpha_validltissue" `
+      --candidate-label $StrictObsBasinleadLabel `
+      --filter-candidate-to-history-issues `
+      --fill-missing-overlay-leads-with-history `
+      --auto-recent-comparison `
+      --promotion-min-overlap-rows 1000 `
+      --promotion-min-basins 3900 `
+      --promotion-min-delta-gt0 0 `
+      --promotion-min-delta-gt04 0 `
+      --promotion-min-delta-gt05 0 `
+      --promotion-min-delta-overlap-nse 0 `
+      --promotion-max-delta-overlap-mae 0 `
+      --require-promotion `
+      --progress-jsonl (Join-Path $StrictIssueWorkRoot "basinlead_progress.jsonl")
+    if ($LASTEXITCODE -ne 0) { throw "strict obs basinlead gate overlay pipeline failed" }
+
+    $ApiHistoryDir = Join-Path $ApiDir "history"
+    if (Test-Path -LiteralPath $ApiHistoryDir) {
+      Remove-Item -LiteralPath $ApiHistoryDir -Recurse -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $StrictOverlayApi "history") -Destination $ApiHistoryDir -Recurse -Force
+    $OverlaySummary = Join-Path $StrictOverlayApi "history_overlay_summary.json"
+    if (Test-Path -LiteralPath $OverlaySummary) {
+      Copy-Item -LiteralPath $OverlaySummary -Destination (Join-Path $ApiDir "history_overlay_summary.json") -Force
+    }
+    $ObservationValidationRunDir = Join-Path $StrictWorkDir "validation"
+    $StrictObsBasinleadApplied = $true
+    Write-Log "strict_obs_basinlead_gate_applied label=$StrictObsBasinleadLabel validation_run_dir=$ObservationValidationRunDir"
+  }
+} else {
+  Write-Log "strict_obs_basinlead_gate_disabled=True"
+}
+
+if ((-not $StrictObsBasinleadApplied) -and (-not $DisableStrictObsHistoryOverlay)) {
   $StrictOverlayScript = Join-Path $StrictObsProjectRoot "scripts\run_strict_obs_history_overlay_pipeline.py"
   $StrictReuseValidationScript = Join-Path $StrictObsProjectRoot "scripts\reuse_public_streamflow_validation_for_api.py"
   $StrictRequiredInputs = @(
